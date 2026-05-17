@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.3.0 | 2026/05/18
+ * kakeicloud v1.3.2 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -90,7 +90,7 @@ export default function Home() {
     }
     const year = parseInt(newDate.split('-')[0])
     const voucherNo = await generateVoucherNo(person, year)
-    await supabase.from('transactions').insert({
+    const { error } = await supabase.from('transactions').insert({
       person,
       date: newDate,
       account: newAccount,
@@ -104,7 +104,7 @@ export default function Home() {
       is_confirmed: false,
       voucher_no: voucherNo,
     })
-    setSavedVoucherNo(voucherNo)
+    if (error) { alert('保存エラー：' + error.message); return }
     setShowForm(false)
     setNewDate(new Date().toISOString().split('T')[0])
     setNewKind('経費')
@@ -113,6 +113,7 @@ export default function Home() {
     setNewMemo('')
     setNewNote('')
     fetchData()
+    setSavedVoucherNo(voucherNo)
   }
 
   async function toggleConfirmed(id: string, current: boolean) {
@@ -140,9 +141,9 @@ export default function Home() {
     fetchData()
   }
 
-  function copyVoucher(voucher_no: string) {
-    navigator.clipboard.writeText(voucher_no)
-    alert(`コピーしました：${voucher_no}`)
+  function copyVoucher(v: string) {
+    navigator.clipboard.writeText(v)
+    alert(`コピーしました：${v}`)
   }
 
   const total = rows.reduce((sum, r) => {
@@ -154,6 +155,24 @@ export default function Home() {
     if (r.account === '売上高' || r.account === '売上') return sum + r.amount
     return sum
   }, 0)
+
+  const modalOverlay: React.CSSProperties = {
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0,0,0,0.5)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', zIndex: 100,
+  }
+  const modalBox: React.CSSProperties = {
+    background: 'white', borderRadius: '12px', width: '360px',
+    maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+  }
+  const scrollArea: React.CSSProperties = {
+    flex: 1, overflowY: 'auto', padding: '16px 24px',
+    WebkitOverflowScrolling: 'touch' as any,
+  }
+  const modalFooter: React.CSSProperties = {
+    padding: '12px 24px 20px', borderTop: '1px solid #e5e7eb',
+    background: 'white',
+  }
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
@@ -227,129 +246,167 @@ export default function Home() {
         </table>
       )}
 
+      {/* 新規入力モーダル */}
       {showForm && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '360px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ marginBottom: '16px', fontSize: '16px' }}>新規仕訳入力</h2>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>対象者</label>
+        <div style={modalOverlay}>
+          <div style={modalBox}>
+            <div style={{ padding: '16px 24px 8px', borderBottom: '1px solid #e5e7eb' }}>
+              <h2 style={{ margin: 0, fontSize: '16px' }}>新規仕訳入力</h2>
+            </div>
+
+            {/* スクロールエリア */}
+            <div style={scrollArea}>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>対象者</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setPerson('hiroshi')} style={{ flex: 1, padding: '8px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
+                  <button onClick={() => setPerson('wife')} style={{ flex: 1, padding: '8px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
+                <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>種別</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {(['経費', '売上', 'その他'] as const).map(k => (
+                    <button key={k} onClick={() => setNewKind(k)}
+                      style={{ flex: 1, padding: '8px', background: newKind === k ? '#7c3aed' : '#e5e7eb', color: newKind === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{k}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>科目</label>
+                <select value={newAccount} onChange={e => setNewAccount(e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                  {ACCOUNTS[newKind].map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
+                <input type="number" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="0"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払方法</label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {Object.keys(METHOD_TO_CREDIT).map(m => (
+                    <button key={m} onClick={() => setNewMethod(m)}
+                      style={{ padding: '6px 12px', background: newMethod === m ? '#0891b2' : '#e5e7eb', color: newMethod === m ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>{m}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
+                <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="例：文房具購入"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ・帳票に出ない）</label>
+                <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            {/* フッター：プレビュー＋ボタン（スクロール外） */}
+            <div style={modalFooter}>
+              <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '12px', fontSize: '12px' }}>
+                <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
+                <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{METHOD_TO_CREDIT[newMethod]}</strong></div>
+                <div>税区分: <strong>{TAX_TYPE[newKind]}</strong></div>
+              </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={() => setPerson('hiroshi')} style={{ flex: 1, padding: '8px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
-                <button onClick={() => setPerson('wife')} style={{ flex: 1, padding: '8px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+                <button onClick={saveNew}
+                  style={{ flex: 1, padding: '14px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>保存</button>
+                <button onClick={() => setShowForm(false)}
+                  style={{ flex: 1, padding: '14px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
               </div>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
-              <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>種別</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                {(['経費', '売上', 'その他'] as const).map(k => (
-                  <button key={k} onClick={() => setNewKind(k)}
-                    style={{ flex: 1, padding: '8px', background: newKind === k ? '#7c3aed' : '#e5e7eb', color: newKind === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{k}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>科目</label>
-              <select value={newAccount} onChange={e => setNewAccount(e.target.value)}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
-                {ACCOUNTS[newKind].map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
-              <input type="number" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="0"
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払方法</label>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                {Object.keys(METHOD_TO_CREDIT).map(m => (
-                  <button key={m} onClick={() => setNewMethod(m)}
-                    style={{ padding: '6px 12px', background: newMethod === m ? '#0891b2' : '#e5e7eb', color: newMethod === m ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>{m}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
-              <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="例：文房具購入"
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ・帳票に出ない）</label>
-              <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px' }}>
-              <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
-              <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{METHOD_TO_CREDIT[newMethod]}</strong></div>
-              <div>税区分: <strong>{TAX_TYPE[newKind]}</strong></div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={saveNew} style={{ flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>保存</button>
-              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>キャンセル</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* 証憑番号表示モーダル */}
       {savedVoucherNo && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+        <div style={{ ...modalOverlay, zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
             <div style={{ fontSize: '14px', color: '#666', marginBottom: '8px' }}>保存完了！証憑番号</div>
             <div style={{ fontSize: '36px', fontWeight: 'bold', letterSpacing: '2px', marginBottom: '20px', color: '#1e293b' }}>{savedVoucherNo}</div>
             <button onClick={() => { navigator.clipboard.writeText(savedVoucherNo); alert('コピーしました！') }}
-              style={{ width: '100%', padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', marginBottom: '8px' }}>📋 コピー</button>
+              style={{ width: '100%', padding: '14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', marginBottom: '8px' }}>📋 コピー</button>
             <button onClick={() => setSavedVoucherNo(null)}
-              style={{ width: '100%', padding: '10px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>閉じる</button>
+              style={{ width: '100%', padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>閉じる</button>
           </div>
         </div>
       )}
 
+      {/* 編集モーダル */}
       {editing && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '360px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <h2 style={{ marginBottom: '16px', fontSize: '16px' }}>仕訳編集</h2>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
-              <input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+        <div style={modalOverlay}>
+          <div style={modalBox}>
+            <div style={{ padding: '16px 24px 8px', borderBottom: '1px solid #e5e7eb' }}>
+              <h2 style={{ margin: 0, fontSize: '16px' }}>仕訳編集</h2>
             </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>科目</label>
-              <input value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value })}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+
+            {/* スクロールエリア */}
+            <div style={scrollArea}>
+              {/* 証憑番号表示＋コピー */}
+              {editing.voucher_no && (
+                <div style={{ background: '#eff6ff', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <div style={{ fontSize: '11px', color: '#6b7280' }}>証憑番号</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1e293b' }}>{editing.voucher_no}</div>
+                  </div>
+                  <button onClick={() => copyVoucher(editing.voucher_no!)}
+                    style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '18px' }}>📋</button>
+                </div>
+              )}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
+                <input type="date" value={editing.date} onChange={e => setEditing({ ...editing, date: e.target.value })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>科目</label>
+                <input value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
+                <input type="number" value={editing.amount} onChange={e => setEditing({ ...editing, amount: parseInt(e.target.value) })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>担当</label>
+                <select value={editing.person} onChange={e => setEditing({ ...editing, person: e.target.value })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                  <option value="hiroshi">廣！</option>
+                  <option value="wife">妻</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
+                <input value={editing.memo} onChange={e => setEditing({ ...editing, memo: e.target.value })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '4px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ）</label>
+                <input value={editing.note || ''} onChange={e => setEditing({ ...editing, note: e.target.value })}
+                  placeholder="例：楽天カード / Amazon.co.jp"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
             </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
-              <input type="number" value={editing.amount} onChange={e => setEditing({ ...editing, amount: parseInt(e.target.value) })}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>担当</label>
-              <select value={editing.person} onChange={e => setEditing({ ...editing, person: e.target.value })}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
-                <option value="hiroshi">廣！</option>
-                <option value="wife">妻</option>
-              </select>
-            </div>
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
-              <input value={editing.memo} onChange={e => setEditing({ ...editing, memo: e.target.value })}
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
-            </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ）</label>
-              <input value={editing.note || ''} onChange={e => setEditing({ ...editing, note: e.target.value })}
-                placeholder="例：楽天カード / Amazon.co.jp"
-                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
-            </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={saveEdit} style={{ flex: 1, padding: '10px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>保存</button>
-              <button onClick={() => setEditing(null)} style={{ flex: 1, padding: '10px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>キャンセル</button>
+
+            {/* フッター（スクロール外） */}
+            <div style={modalFooter}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={saveEdit}
+                  style={{ flex: 1, padding: '14px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>保存</button>
+                <button onClick={() => setEditing(null)}
+                  style={{ flex: 1, padding: '14px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
+              </div>
             </div>
           </div>
         </div>
