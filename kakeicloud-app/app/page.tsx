@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.3.2 | 2026/05/18
+ * kakeicloud v1.3.3 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -49,6 +49,7 @@ export default function Home() {
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [savedVoucherNo, setSavedVoucherNo] = useState<string | null>(null)
+  const [bulkLoading, setBulkLoading] = useState(false)
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
   const [newKind, setNewKind] = useState<'経費' | '売上' | 'その他'>('経費')
@@ -81,6 +82,55 @@ export default function Home() {
       .eq('year', year)
     const num = String((count || 0) + 1).padStart(3, '0')
     return `${prefix}${year}-${num}`
+  }
+
+  async function bulkAssignVoucherNo() {
+    // 証憑番号なしの件数確認
+    const { data: unassigned } = await supabase
+      .from('transactions')
+      .select('id, date, year')
+      .eq('person', person)
+      .is('voucher_no', null)
+      .order('date', { ascending: true })
+
+    if (!unassigned || unassigned.length === 0) {
+      alert('採番が必要なデータはありません')
+      return
+    }
+
+    if (!confirm(`${unassigned.length}件に証憑番号を採番します。よろしいですか？`)) return
+
+    setBulkLoading(true)
+    const prefix = person === 'hiroshi' ? 'H' : 'W'
+
+    // 年度ごとに処理
+    const years = [...new Set(unassigned.map(r => r.year))]
+
+    for (const year of years) {
+      // その年の既存採番数を取得
+      const { count } = await supabase
+        .from('transactions')
+        .select('*', { count: 'exact', head: true })
+        .eq('person', person)
+        .eq('year', year)
+        .not('voucher_no', 'is', null)
+
+      let counter = (count || 0) + 1
+      const yearRecords = unassigned.filter(r => r.year === year)
+
+      for (const record of yearRecords) {
+        const voucherNo = `${prefix}${year}-${String(counter).padStart(3, '0')}`
+        await supabase
+          .from('transactions')
+          .update({ voucher_no: voucherNo })
+          .eq('id', record.id)
+        counter++
+      }
+    }
+
+    setBulkLoading(false)
+    alert('採番完了しました！')
+    fetchData()
   }
 
   async function saveNew() {
@@ -156,6 +206,8 @@ export default function Home() {
     return sum
   }, 0)
 
+  const noVoucherCount = rows.filter(r => !r.voucher_no).length
+
   const modalOverlay: React.CSSProperties = {
     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
     background: 'rgba(0,0,0,0.5)', display: 'flex',
@@ -170,15 +222,15 @@ export default function Home() {
     WebkitOverflowScrolling: 'touch' as any,
   }
   const modalFooter: React.CSSProperties = {
-    padding: '12px 24px 20px', borderTop: '1px solid #e5e7eb',
-    background: 'white',
+    padding: '12px 24px 20px', borderTop: '1px solid #e5e7eb', background: 'white',
   }
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '20px', marginBottom: '16px' }}>kakeicloud 仕訳台帳</h1>
 
-      <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+      {/* タブ＋ボタン */}
+      <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
         <button onClick={() => setPerson('wife')}
@@ -187,6 +239,18 @@ export default function Home() {
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
 
+      {/* 一括採番バナー */}
+      {noVoucherCount > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '13px', color: '#92400e' }}>証憑番号なし：<strong>{noVoucherCount}件</strong></span>
+          <button onClick={bulkAssignVoucherNo} disabled={bulkLoading}
+            style={{ padding: '6px 16px', background: '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+            {bulkLoading ? '採番中...' : '一括採番'}
+          </button>
+        </div>
+      )}
+
+      {/* サマリー */}
       <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fef2f2', padding: '12px 20px', borderRadius: '8px' }}>
           <div style={{ fontSize: '12px', color: '#666' }}>経費合計</div>
@@ -202,6 +266,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* 一覧 */}
       {loading ? <div>読み込み中...</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -222,7 +287,9 @@ export default function Home() {
                   <input type="checkbox" checked={r.is_confirmed} onChange={() => toggleConfirmed(r.id, r.is_confirmed)}
                     style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
                 </td>
-                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>{r.voucher_no || '－'}</td>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', fontSize: '11px', whiteSpace: 'nowrap', color: r.voucher_no ? '#6b7280' : '#f59e0b', fontWeight: r.voucher_no ? 'normal' : 'bold' }}>
+                  {r.voucher_no || '未採番'}
+                </td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{r.date}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb' }}>{r.account}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{r.amount.toLocaleString()}</td>
@@ -253,8 +320,6 @@ export default function Home() {
             <div style={{ padding: '16px 24px 8px', borderBottom: '1px solid #e5e7eb' }}>
               <h2 style={{ margin: 0, fontSize: '16px' }}>新規仕訳入力</h2>
             </div>
-
-            {/* スクロールエリア */}
             <div style={scrollArea}>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>対象者</label>
@@ -303,14 +368,12 @@ export default function Home() {
                 <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="例：文房具購入"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
-              <div style={{ marginBottom: '4px' }}>
+              <div>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ・帳票に出ない）</label>
                 <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
             </div>
-
-            {/* フッター：プレビュー＋ボタン（スクロール外） */}
             <div style={modalFooter}>
               <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '12px', fontSize: '12px' }}>
                 <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
@@ -328,7 +391,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 証憑番号表示モーダル */}
+      {/* 証憑番号モーダル */}
       {savedVoucherNo && (
         <div style={{ ...modalOverlay, zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
@@ -349,10 +412,7 @@ export default function Home() {
             <div style={{ padding: '16px 24px 8px', borderBottom: '1px solid #e5e7eb' }}>
               <h2 style={{ margin: 0, fontSize: '16px' }}>仕訳編集</h2>
             </div>
-
-            {/* スクロールエリア */}
             <div style={scrollArea}>
-              {/* 証憑番号表示＋コピー */}
               {editing.voucher_no && (
                 <div style={{ background: '#eff6ff', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
@@ -391,15 +451,13 @@ export default function Home() {
                 <input value={editing.memo} onChange={e => setEditing({ ...editing, memo: e.target.value })}
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
-              <div style={{ marginBottom: '4px' }}>
+              <div>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ）</label>
                 <input value={editing.note || ''} onChange={e => setEditing({ ...editing, note: e.target.value })}
                   placeholder="例：楽天カード / Amazon.co.jp"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
             </div>
-
-            {/* フッター（スクロール外） */}
             <div style={modalFooter}>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={saveEdit}
