@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.4.0 | 2026/05/18
+ * kakeicloud v1.4.1 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -150,6 +150,14 @@ export default function Home() {
     setShowPrint(true)
   }
 
+  function copyVoucher(r: Transaction) {
+    const line1 = `${r.voucher_no}  ${r.date}`
+    const line2 = `${r.account} ¥${r.amount.toLocaleString()}（¥${(r.tax_amount || 0).toLocaleString()}）`
+    const text = `${line1}\n${line2}`
+    navigator.clipboard.writeText(text)
+    alert(`コピーしました！\n${text}`)
+  }
+
   async function saveNew() {
     if (!newAmount || parseInt(newAmount) <= 0) {
       alert('金額を入力してください')
@@ -217,11 +225,6 @@ export default function Home() {
     fetchData()
   }
 
-  function copyVoucher(v: string) {
-    navigator.clipboard.writeText(v)
-    alert(`コピーしました：${v}`)
-  }
-
   const total = rows.reduce((sum, r) => {
     if (r.account === '売上高' || r.account === '売上' || r.account === '仕入返品') return sum
     return sum + r.amount
@@ -256,7 +259,6 @@ export default function Home() {
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '20px', marginBottom: '16px' }}>kakeicloud 仕訳台帳</h1>
 
-      {/* タブ＋ボタン */}
       <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -272,7 +274,6 @@ export default function Home() {
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
 
-      {/* 一括採番バナー */}
       {noVoucherCount > 0 && (
         <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '13px', color: '#92400e' }}>証憑番号なし：<strong>{noVoucherCount}件</strong></span>
@@ -283,7 +284,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* サマリー */}
       <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fef2f2', padding: '12px 20px', borderRadius: '8px' }}>
           <div style={{ fontSize: '12px', color: '#666' }}>経費合計</div>
@@ -299,7 +299,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 一覧 */}
       {loading ? <div>読み込み中...</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -337,7 +336,7 @@ export default function Home() {
                 </td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'center', whiteSpace: 'nowrap' }}>
                   {r.voucher_no && (
-                    <button onClick={() => copyVoucher(r.voucher_no!)}
+                    <button onClick={() => copyVoucher(r)}
                       style={{ marginRight: '4px', padding: '2px 8px', background: '#0891b2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>🖨</button>
                   )}
                   <button onClick={() => setEditing(r)}
@@ -351,7 +350,6 @@ export default function Home() {
         </table>
       )}
 
-      {/* 新規入力モーダル */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -448,7 +446,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 証憑番号モーダル */}
       {savedVoucherNo && (
         <div style={{ ...modalOverlay, zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
@@ -462,7 +459,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 編集モーダル */}
       {editing && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -476,7 +472,7 @@ export default function Home() {
                     <div style={{ fontSize: '11px', color: '#6b7280' }}>証憑番号</div>
                     <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#1e293b' }}>{editing.voucher_no}</div>
                   </div>
-                  <button onClick={() => copyVoucher(editing.voucher_no!)}
+                  <button onClick={() => copyVoucher(editing)}
                     style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '18px' }}>📋</button>
                 </div>
               )}
@@ -547,7 +543,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* A4証憑票印刷モーダル */}
       {showPrint && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'auto' }}>
           <style>{`
@@ -556,7 +551,6 @@ export default function Home() {
               body { margin: 0; }
             }
           `}</style>
-
           <div className="no-print" style={{ padding: '16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
             <span style={{ fontWeight: 'bold' }}>🖨 証憑票印刷（未確認{unconfirmedCount}件 → 先頭8件）</span>
             <button onClick={() => window.print()}
@@ -564,7 +558,6 @@ export default function Home() {
             <button onClick={() => setShowPrint(false)}
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
-
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '16px', maxWidth: '800px', margin: '0 auto' }}>
             {printRows.map((r, i) => (
               <div key={i} style={{ border: '2px solid #000', borderRadius: '4px', padding: '12px', minHeight: '140px' }}>
