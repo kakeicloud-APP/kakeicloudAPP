@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.3.0 | 2026/05/18
+ * kakeicloud v1.3.2 | 2026/05/18
  * kakeicloud-app/components/MemoPanel.tsx
  */
 
@@ -39,7 +39,8 @@ export default function MemoPanel() {
 
   async function addMemo() {
     if (!newTitle.trim()) { alert('タイトルを入力してください'); return }
-    await supabase.from('memos').insert({ category, title: newTitle, body: newBody })
+    const { error } = await supabase.from('memos').insert({ category, title: newTitle, body: newBody })
+    if (error) { alert('保存エラー：' + error.message); return }
     setNewTitle('')
     setNewBody('')
     setShowAdd(false)
@@ -60,18 +61,24 @@ export default function MemoPanel() {
       {open && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: 'white', borderRadius: '12px', width: '360px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+            {/* ヘッダ */}
             <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 'bold', fontSize: '16px' }}>📝 メモ</span>
               <button onClick={() => { setOpen(false); setShowAdd(false) }}
                 style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#666' }}>✕</button>
             </div>
+
+            {/* タブ */}
             <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb' }}>
               {CATEGORIES.map(c => (
                 <button key={c} onClick={() => { setCategory(c); setShowAdd(false) }}
                   style={{ flex: 1, padding: '10px', border: 'none', background: category === c ? '#7c3aed' : 'white', color: category === c ? 'white' : '#666', cursor: 'pointer', fontSize: '13px', fontWeight: category === c ? 'bold' : 'normal' }}>{c}</button>
               ))}
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+
+            {/* スクロールエリア */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px', WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
               {memos.length === 0 && !showAdd && (
                 <div style={{ color: '#9ca3af', textAlign: 'center', padding: '24px', fontSize: '13px' }}>メモがありません</div>
               )}
@@ -91,25 +98,32 @@ export default function MemoPanel() {
                   )}
                 </div>
               ))}
+
+              {/* 追加フォーム（入力欄のみ） */}
               {showAdd && (
-                <div style={{ border: '1px solid #7c3aed', borderRadius: '8px', padding: '12px', marginBottom: '8px' }}>
+                <div style={{ border: '1px solid #7c3aed', borderRadius: '8px', padding: '12px' }}>
                   <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="タイトル"
                     style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', marginBottom: '8px', boxSizing: 'border-box', fontSize: '13px' }} />
                   <textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder="内容（任意）" rows={4}
-                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', marginBottom: '8px', boxSizing: 'border-box', fontSize: '13px', resize: 'vertical' }} />
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={addMemo} style={{ flex: 1, padding: '8px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>保存</button>
-                    <button onClick={() => setShowAdd(false)} style={{ flex: 1, padding: '8px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>キャンセル</button>
-                  </div>
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', fontSize: '13px', resize: 'vertical' }} />
                 </div>
               )}
             </div>
-            {!showAdd && (
-              <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb' }}>
+
+            {/* フッター（スクロール外・常に表示） */}
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #e5e7eb', background: 'white' }}>
+              {showAdd ? (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={addMemo}
+                    style={{ flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>保存</button>
+                  <button onClick={() => setShowAdd(false)}
+                    style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
+                </div>
+              ) : (
                 <button onClick={() => setShowAdd(true)}
-                  style={{ width: '100%', padding: '10px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>＋ メモを追加</button>
-              </div>
-            )}
+                  style={{ width: '100%', padding: '12px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' }}>＋ メモを追加</button>
+              )}
+            </div>
           </div>
         </div>
       )}
