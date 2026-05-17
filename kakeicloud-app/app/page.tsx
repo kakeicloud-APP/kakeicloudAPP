@@ -1,3 +1,8 @@
+/**
+ * kakeicloud v1.3.0 | 2026/05/18
+ * kakeicloud-app/app/page.tsx
+ */
+
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -11,8 +16,10 @@ type Transaction = {
   tax_type: string
   method: string
   memo: string
+  note?: string
   year: number
   is_closing: boolean
+  is_confirmed: boolean
   voucher_no?: string
 }
 
@@ -49,6 +56,7 @@ export default function Home() {
   const [newAmount, setNewAmount] = useState('')
   const [newMethod, setNewMethod] = useState('現金')
   const [newMemo, setNewMemo] = useState('')
+  const [newNote, setNewNote] = useState('')
 
   useEffect(() => { fetchData() }, [person])
   useEffect(() => { setNewAccount(ACCOUNTS[newKind][0]) }, [newKind])
@@ -90,8 +98,10 @@ export default function Home() {
       tax_type: TAX_TYPE[newKind],
       method: METHOD_TO_CREDIT[newMethod] || newMethod,
       memo: newMemo,
+      note: newNote,
       year,
       is_closing: false,
+      is_confirmed: false,
       voucher_no: voucherNo,
     })
     setSavedVoucherNo(voucherNo)
@@ -101,6 +111,12 @@ export default function Home() {
     setNewAmount('')
     setNewMethod('現金')
     setNewMemo('')
+    setNewNote('')
+    fetchData()
+  }
+
+  async function toggleConfirmed(id: string, current: boolean) {
+    await supabase.from('transactions').update({ is_confirmed: !current }).eq('id', id)
     fetchData()
   }
 
@@ -111,6 +127,7 @@ export default function Home() {
       account: editing.account,
       amount: editing.amount,
       memo: editing.memo,
+      note: editing.note,
       person: editing.person,
     }).eq('id', editing.id)
     setEditing(null)
@@ -121,6 +138,11 @@ export default function Home() {
     if (!confirm('削除しますか？')) return
     await supabase.from('transactions').delete().eq('id', id)
     fetchData()
+  }
+
+  function copyVoucher(voucher_no: string) {
+    navigator.clipboard.writeText(voucher_no)
+    alert(`コピーしました：${voucher_no}`)
   }
 
   const total = rows.reduce((sum, r) => {
@@ -134,10 +156,9 @@ export default function Home() {
   }, 0)
 
   return (
-    <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '900px', margin: '0 auto' }}>
+    <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
       <h1 style={{ fontSize: '20px', marginBottom: '16px' }}>kakeicloud 仕訳台帳</h1>
 
-      {/* タブ＋新規ボタン */}
       <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -147,8 +168,7 @@ export default function Home() {
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
 
-      {/* サマリー */}
-      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fef2f2', padding: '12px 20px', borderRadius: '8px' }}>
           <div style={{ fontSize: '12px', color: '#666' }}>経費合計</div>
           <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>△{total.toLocaleString()}円</div>
@@ -163,30 +183,43 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 一覧 */}
       {loading ? <div>読み込み中...</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
             <tr style={{ background: '#f3f4f6' }}>
+              <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>✅</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>証憑番号</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>日付</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>科目</th>
               <th style={{ padding: '8px', textAlign: 'right', border: '1px solid #e5e7eb' }}>金額</th>
-              <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>摘要</th>
+              <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>摘要 / 備考</th>
               <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>操作</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280' }}>{r.voucher_no || '－'}</td>
+              <tr key={r.id} style={{ borderBottom: '1px solid #e5e7eb', background: r.is_confirmed ? '#f0fdf4' : 'white' }}>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                  <input type="checkbox" checked={r.is_confirmed} onChange={() => toggleConfirmed(r.id, r.is_confirmed)}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer' }} />
+                </td>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', fontSize: '11px', color: '#6b7280', whiteSpace: 'nowrap' }}>{r.voucher_no || '－'}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{r.date}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb' }}>{r.account}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{r.amount.toLocaleString()}</td>
-                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.memo}</td>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', maxWidth: '200px' }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.memo}</div>
+                  {r.note && <div style={{ fontSize: '11px', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {r.note}</div>}
+                </td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  <button onClick={() => setEditing(r)} style={{ marginRight: '4px', padding: '2px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>編集</button>
-                  <button onClick={() => deleteRow(r.id)} style={{ padding: '2px 8px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>削除</button>
+                  {r.voucher_no && (
+                    <button onClick={() => copyVoucher(r.voucher_no!)}
+                      style={{ marginRight: '4px', padding: '2px 8px', background: '#0891b2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>🖨</button>
+                  )}
+                  <button onClick={() => setEditing(r)}
+                    style={{ marginRight: '4px', padding: '2px 8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>編集</button>
+                  <button onClick={() => deleteRow(r.id)}
+                    style={{ padding: '2px 8px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>削除</button>
                 </td>
               </tr>
             ))}
@@ -194,28 +227,22 @@ export default function Home() {
         </table>
       )}
 
-      {/* 新規入力モーダル */}
       {showForm && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
           <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '360px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ marginBottom: '16px', fontSize: '16px' }}>新規仕訳入力</h2>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>対象者</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={() => setPerson('hiroshi')}
-                  style={{ flex: 1, padding: '8px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
-                <button onClick={() => setPerson('wife')}
-                  style={{ flex: 1, padding: '8px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+                <button onClick={() => setPerson('hiroshi')} style={{ flex: 1, padding: '8px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
+                <button onClick={() => setPerson('wife')} style={{ flex: 1, padding: '8px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
               </div>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
               <input type="date" value={newDate} onChange={e => setNewDate(e.target.value)}
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>種別</label>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -225,7 +252,6 @@ export default function Home() {
                 ))}
               </div>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>科目</label>
               <select value={newAccount} onChange={e => setNewAccount(e.target.value)}
@@ -233,13 +259,11 @@ export default function Home() {
                 {ACCOUNTS[newKind].map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
               <input type="number" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="0"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
             </div>
-
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払方法</label>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -249,31 +273,29 @@ export default function Home() {
                 ))}
               </div>
             </div>
-
             <div style={{ marginBottom: '12px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要</label>
-              <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="例：Amazon 文房具"
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
+              <input value={newMemo} onChange={e => setNewMemo(e.target.value)} placeholder="例：文房具購入"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
             </div>
-
-            {/* 仕訳プレビュー */}
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ・帳票に出ない）</label>
+              <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
+                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+            </div>
             <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', fontSize: '12px' }}>
               <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
               <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{METHOD_TO_CREDIT[newMethod]}</strong></div>
               <div>税区分: <strong>{TAX_TYPE[newKind]}</strong></div>
             </div>
-
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={saveNew}
-                style={{ flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>保存</button>
-              <button onClick={() => setShowForm(false)}
-                style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>キャンセル</button>
+              <button onClick={saveNew} style={{ flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '15px' }}>保存</button>
+              <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>キャンセル</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 証憑番号表示モーダル */}
       {savedVoucherNo && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
@@ -287,10 +309,9 @@ export default function Home() {
         </div>
       )}
 
-      {/* 編集モーダル */}
       {editing && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '360px' }}>
+          <div style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '360px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ marginBottom: '16px', fontSize: '16px' }}>仕訳編集</h2>
             <div style={{ marginBottom: '12px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>日付</label>
@@ -315,9 +336,15 @@ export default function Home() {
                 <option value="wife">妻</option>
               </select>
             </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要</label>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
               <input value={editing.memo} onChange={e => setEditing({ ...editing, memo: e.target.value })}
+                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+            </div>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ）</label>
+              <input value={editing.note || ''} onChange={e => setEditing({ ...editing, note: e.target.value })}
+                placeholder="例：楽天カード / Amazon.co.jp"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
