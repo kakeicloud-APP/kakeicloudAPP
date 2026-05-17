@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.3.3 | 2026/05/18
+ * kakeicloud v1.4.0 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -14,6 +14,9 @@ type Transaction = {
   account: string
   amount: number
   tax_type: string
+  tax_rate?: number
+  tax_amount?: number
+  invoice_no?: string
   method: string
   memo: string
   note?: string
@@ -42,6 +45,11 @@ const TAX_TYPE: Record<string, string> = {
   その他: '対象外',
 }
 
+function calcTax(amount: number, rate: number): number {
+  if (rate === 0) return 0
+  return Math.round(amount * rate / (100 + rate))
+}
+
 export default function Home() {
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<Transaction[]>([])
@@ -50,17 +58,25 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false)
   const [savedVoucherNo, setSavedVoucherNo] = useState<string | null>(null)
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
+  const [printRows, setPrintRows] = useState<(Transaction | null)[]>([])
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
   const [newKind, setNewKind] = useState<'経費' | '売上' | 'その他'>('経費')
   const [newAccount, setNewAccount] = useState('消耗品費')
   const [newAmount, setNewAmount] = useState('')
+  const [newTaxRate, setNewTaxRate] = useState(10)
+  const [newTaxAmount, setNewTaxAmount] = useState(0)
+  const [newInvoiceNo, setNewInvoiceNo] = useState('')
   const [newMethod, setNewMethod] = useState('現金')
   const [newMemo, setNewMemo] = useState('')
   const [newNote, setNewNote] = useState('')
 
   useEffect(() => { fetchData() }, [person])
   useEffect(() => { setNewAccount(ACCOUNTS[newKind][0]) }, [newKind])
+  useEffect(() => {
+    setNewTaxAmount(calcTax(parseInt(newAmount) || 0, newTaxRate))
+  }, [newAmount, newTaxRate])
 
   async function fetchData() {
     setLoading(true)
@@ -80,12 +96,11 @@ export default function Home() {
       .select('*', { count: 'exact', head: true })
       .eq('person', p)
       .eq('year', year)
-    const num = String((count || 0) + 1).padStart(3, '0')
+    const num = String((count || 0) + 1).padStart(4, '0')
     return `${prefix}${year}-${num}`
   }
 
   async function bulkAssignVoucherNo() {
-    // 証憑番号なしの件数確認
     const { data: unassigned } = await supabase
       .from('transactions')
       .select('id, date, year')
@@ -97,17 +112,13 @@ export default function Home() {
       alert('採番が必要なデータはありません')
       return
     }
-
     if (!confirm(`${unassigned.length}件に証憑番号を採番します。よろしいですか？`)) return
 
     setBulkLoading(true)
     const prefix = person === 'hiroshi' ? 'H' : 'W'
-
-    // 年度ごとに処理
     const years = [...new Set(unassigned.map(r => r.year))]
 
     for (const year of years) {
-      // その年の既存採番数を取得
       const { count } = await supabase
         .from('transactions')
         .select('*', { count: 'exact', head: true })
@@ -119,11 +130,8 @@ export default function Home() {
       const yearRecords = unassigned.filter(r => r.year === year)
 
       for (const record of yearRecords) {
-        const voucherNo = `${prefix}${year}-${String(counter).padStart(3, '0')}`
-        await supabase
-          .from('transactions')
-          .update({ voucher_no: voucherNo })
-          .eq('id', record.id)
+        const voucherNo = `${prefix}${year}-${String(counter).padStart(4, '0')}`
+        await supabase.from('transactions').update({ voucher_no: voucherNo }).eq('id', record.id)
         counter++
       }
     }
@@ -131,6 +139,15 @@ export default function Home() {
     setBulkLoading(false)
     alert('採番完了しました！')
     fetchData()
+  }
+
+  function openPrint() {
+    const unconfirmed = rows.filter(r => !r.is_confirmed && r.voucher_no)
+    const selected = unconfirmed.slice(0, 8)
+    const padded: (Transaction | null)[] = [...selected]
+    while (padded.length < 8) padded.push(null)
+    setPrintRows(padded)
+    setShowPrint(true)
   }
 
   async function saveNew() {
@@ -146,6 +163,9 @@ export default function Home() {
       account: newAccount,
       amount: parseInt(newAmount),
       tax_type: TAX_TYPE[newKind],
+      tax_rate: newTaxRate,
+      tax_amount: newTaxAmount,
+      invoice_no: newInvoiceNo || null,
       method: METHOD_TO_CREDIT[newMethod] || newMethod,
       memo: newMemo,
       note: newNote,
@@ -159,6 +179,9 @@ export default function Home() {
     setNewDate(new Date().toISOString().split('T')[0])
     setNewKind('経費')
     setNewAmount('')
+    setNewTaxRate(10)
+    setNewTaxAmount(0)
+    setNewInvoiceNo('')
     setNewMethod('現金')
     setNewMemo('')
     setNewNote('')
@@ -177,6 +200,9 @@ export default function Home() {
       date: editing.date,
       account: editing.account,
       amount: editing.amount,
+      tax_rate: editing.tax_rate,
+      tax_amount: editing.tax_amount,
+      invoice_no: editing.invoice_no || null,
       memo: editing.memo,
       note: editing.note,
       person: editing.person,
@@ -207,6 +233,7 @@ export default function Home() {
   }, 0)
 
   const noVoucherCount = rows.filter(r => !r.voucher_no).length
+  const unconfirmedCount = rows.filter(r => !r.is_confirmed && r.voucher_no).length
 
   const modalOverlay: React.CSSProperties = {
     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -235,6 +262,12 @@ export default function Home() {
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
         <button onClick={() => setPerson('wife')}
           style={{ padding: '8px 16px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+        {unconfirmedCount > 0 && (
+          <button onClick={openPrint}
+            style={{ padding: '8px 16px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+            🖨 証憑票印刷（{unconfirmedCount}件）
+          </button>
+        )}
         <button onClick={() => setShowForm(true)}
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
@@ -276,6 +309,7 @@ export default function Home() {
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>日付</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>科目</th>
               <th style={{ padding: '8px', textAlign: 'right', border: '1px solid #e5e7eb' }}>金額</th>
+              <th style={{ padding: '8px', textAlign: 'right', border: '1px solid #e5e7eb' }}>消費税</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>摘要 / 備考</th>
               <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>操作</th>
             </tr>
@@ -293,6 +327,10 @@ export default function Home() {
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{r.date}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb' }}>{r.account}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{r.amount.toLocaleString()}</td>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right', fontSize: '12px', color: '#6b7280' }}>
+                  {r.tax_amount ? `¥${r.tax_amount.toLocaleString()}` : '－'}
+                  {r.tax_rate ? `(${r.tax_rate}%)` : ''}
+                </td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', maxWidth: '200px' }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.memo}</div>
                   {r.note && <div style={{ fontSize: '11px', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {r.note}</div>}
@@ -350,8 +388,27 @@ export default function Home() {
                 </select>
               </div>
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額（税込）</label>
                 <input type="number" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="0"
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>税率</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[0, 8, 10].map(r => (
+                    <button key={r} onClick={() => setNewTaxRate(r)}
+                      style={{ flex: 1, padding: '8px', background: newTaxRate === r ? '#dc2626' : '#e5e7eb', color: newTaxRate === r ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{r}%</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>消費税額（自動計算）</label>
+                <input type="number" value={newTaxAmount} onChange={e => setNewTaxAmount(parseInt(e.target.value) || 0)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', background: '#f9fafb' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>登録番号（任意・T＋13桁）</label>
+                <input value={newInvoiceNo} onChange={e => setNewInvoiceNo(e.target.value)} placeholder="T1234567890123"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
@@ -369,7 +426,7 @@ export default function Home() {
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ・帳票に出ない）</label>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用・帳票に出ない）</label>
                 <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
@@ -378,7 +435,7 @@ export default function Home() {
               <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '12px', fontSize: '12px' }}>
                 <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
                 <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{METHOD_TO_CREDIT[newMethod]}</strong></div>
-                <div>税区分: <strong>{TAX_TYPE[newKind]}</strong></div>
+                <div>税区分: <strong>{TAX_TYPE[newKind]}</strong> / 消費税: <strong>¥{newTaxAmount.toLocaleString()}</strong></div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={saveNew}
@@ -434,8 +491,28 @@ export default function Home() {
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額</label>
-                <input type="number" value={editing.amount} onChange={e => setEditing({ ...editing, amount: parseInt(e.target.value) })}
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額（税込）</label>
+                <input type="number" value={editing.amount} onChange={e => setEditing({ ...editing, amount: parseInt(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>税率</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[0, 8, 10].map(r => (
+                    <button key={r} onClick={() => setEditing({ ...editing, tax_rate: r, tax_amount: calcTax(editing.amount, r) })}
+                      style={{ flex: 1, padding: '8px', background: (editing.tax_rate ?? 10) === r ? '#dc2626' : '#e5e7eb', color: (editing.tax_rate ?? 10) === r ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{r}%</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>消費税額</label>
+                <input type="number" value={editing.tax_amount ?? 0} onChange={e => setEditing({ ...editing, tax_amount: parseInt(e.target.value) || 0 })}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>登録番号（任意）</label>
+                <input value={editing.invoice_no || ''} onChange={e => setEditing({ ...editing, invoice_no: e.target.value })}
+                  placeholder="T1234567890123"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
@@ -466,6 +543,46 @@ export default function Home() {
                   style={{ flex: 1, padding: '14px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>キャンセル</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* A4証憑票印刷モーダル */}
+      {showPrint && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'auto' }}>
+          <style>{`
+            @media print {
+              .no-print { display: none !important; }
+              body { margin: 0; }
+            }
+          `}</style>
+
+          <div className="no-print" style={{ padding: '16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+            <span style={{ fontWeight: 'bold' }}>🖨 証憑票印刷（未確認{unconfirmedCount}件 → 先頭8件）</span>
+            <button onClick={() => window.print()}
+              style={{ marginLeft: 'auto', padding: '8px 20px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>印刷</button>
+            <button onClick={() => setShowPrint(false)}
+              style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '16px', maxWidth: '800px', margin: '0 auto' }}>
+            {printRows.map((r, i) => (
+              <div key={i} style={{ border: '2px solid #000', borderRadius: '4px', padding: '12px', minHeight: '140px' }}>
+                {r ? (
+                  <>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>{r.voucher_no}</div>
+                    <div style={{ fontSize: '12px', color: '#555', marginBottom: '4px' }}>{r.date}</div>
+                    <div style={{ fontSize: '13px', marginBottom: '2px' }}>{r.account}</div>
+                    <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '2px' }}>¥{r.amount.toLocaleString()}</div>
+                    {r.tax_amount ? <div style={{ fontSize: '11px', color: '#555' }}>消費税 ¥{r.tax_amount.toLocaleString()}（{r.tax_rate}%）</div> : null}
+                    <div style={{ fontSize: '12px', marginTop: '6px', borderTop: '1px solid #ccc', paddingTop: '4px' }}>{r.memo}</div>
+                    {r.note && <div style={{ fontSize: '11px', color: '#777' }}>{r.note}</div>}
+                  </>
+                ) : (
+                  <div style={{ color: '#ccc', fontSize: '12px', textAlign: 'center', paddingTop: '50px' }}>（空欄）</div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
