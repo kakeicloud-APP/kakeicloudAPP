@@ -1,1 +1,8 @@
-// kakeicloud v1.0.2 | Supabase自動ping | 2026/05/17 import { supabase } from '../../../lib/supabase' import { NextResponse } from 'next/server' export async function GET() { await supabase.from('transactions').select('id').limit(1) return NextResponse.json({ ok: true, time: new Date().toISOString() }) }
+// kakeicloud v1.0.2 | Supabase自動ping | 2026/05/17
+import { supabase } from '../../../lib/supabase'
+import { NextResponse } from 'next/server'
+
+export async function GET() {
+  await supabase.from('transactions').select('id').limit(1)
+  return NextResponse.json({ ok: true, time: new Date().toISOString() })
+}
