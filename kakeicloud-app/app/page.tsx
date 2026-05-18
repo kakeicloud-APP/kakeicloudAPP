@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.5.4 | 2026/05/18
+ * kakeicloud v1.6.1 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const VERSION = 'v1.5.4'
+const VERSION = 'v1.6.1'
 
 type Transaction = {
   id: string
@@ -94,9 +94,6 @@ export default function Home() {
   useEffect(() => { fetchData(); fetchPaymentAccounts() }, [person])
   useEffect(() => { setNewAccount(ACCOUNTS[newKind][0]) }, [newKind])
   useEffect(() => {
-    setNewTaxAmount(calcTax(parseInt(newAmount) || 0, newTaxRate))
-  }, [newAmount, newTaxRate])
-  useEffect(() => {
     const filtered = filteredPaymentAccounts(newPaymentKind)
     setNewPaymentAccount(filtered[0]?.name || '')
   }, [newPaymentKind, person, paymentAccounts])
@@ -123,7 +120,6 @@ export default function Home() {
     )
   }
 
-  // 証憑票印刷用データ
   const printableRows = rows.filter(r => r.voucher_no)
   const totalPrintPages = Math.ceil(printableRows.length / 8)
 
@@ -134,38 +130,6 @@ export default function Home() {
       result.push(printableRows[idx] || null)
     }
     return result
-  }
-
-  function VoucherBox({ r, pageNum, totalPages }: { r: Transaction | null, pageNum?: number, totalPages?: number }) {
-    return (
-      <div style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {r ? (
-          <>
-            <div style={{ padding: '4px 6px', borderBottom: '1px solid #999', background: '#f9f9f9' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 'bold' }}>
-                <span>{r.voucher_no}</span>
-                <span>{r.date}</span>
-              </div>
-              <div style={{ fontSize: '9px' }}>
-                {r.account}　¥{r.amount.toLocaleString()}
-                {r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}
-              </div>
-              {r.memo && <div style={{ fontSize: '8px', color: '#555', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.memo}</div>}
-            </div>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {r.method !== '現金' && (
-                <div style={{ textAlign: 'center', fontSize: '11px', color: '#444', lineHeight: 1.6 }}>
-                  <div style={{ fontWeight: 'bold', fontSize: '12px' }}>証憑無し</div>
-                  <div>{r.payment_account || methodToKind(r.method)}より</div>
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>（空欄）</div>
-        )}
-      </div>
-    )
   }
 
   async function generateVoucherNo(p: string, year: number): Promise<string> {
@@ -284,7 +248,6 @@ export default function Home() {
   const modalFooter: React.CSSProperties = {
     padding: '12px 24px 20px', borderTop: '1px solid #e5e7eb', background: 'white',
   }
-
   const gridStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr 1fr 1fr',
@@ -439,10 +402,12 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額（税込）</label>
-                <input type="number" value={newAmount} onChange={e => {
+                <input type="number" value={newAmount}
+                  onChange={e => {
                     setNewAmount(e.target.value)
                     setNewTaxAmount(calcTax(parseInt(e.target.value) || 0, newTaxRate))
-                  }} placeholder="0"
+                  }}
+                  placeholder="0"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
@@ -656,12 +621,9 @@ export default function Home() {
               @page { size: A4 portrait; margin: 8mm; }
               body { margin: 0; }
             }
-            @media screen {
-              .print-only { display: none; }
-            }
+            @media screen { .print-only { display: none; } }
           `}</style>
 
-          {/* 画面用ナビゲーション */}
           <div className="no-print" style={{ padding: '10px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: '8px 16px', background: printPage === 0 ? '#e5e7eb' : '#2563eb', color: printPage === 0 ? '#999' : 'white', border: 'none', borderRadius: '6px', cursor: printPage === 0 ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '16px' }}>←</button>
@@ -676,7 +638,6 @@ export default function Home() {
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
 
-          {/* 画面プレビュー（現在のページ） */}
           <div className="no-print" style={{ ...gridStyle }}>
             {getPageRows(printPage).map((r, i) => (
               <div key={i} style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -684,8 +645,7 @@ export default function Home() {
                   <>
                     <div style={{ padding: '4px 6px', borderBottom: '1px solid #999', background: '#f9f9f9' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 'bold' }}>
-                        <span>{r.voucher_no}</span>
-                        <span>{r.date}</span>
+                        <span>{r.voucher_no}</span><span>{r.date}</span>
                       </div>
                       <div style={{ fontSize: '9px' }}>{r.account}　¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}</div>
                       {r.memo && <div style={{ fontSize: '8px', color: '#555', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.memo}</div>}
@@ -706,15 +666,12 @@ export default function Home() {
             ))}
           </div>
 
-          {/* 印刷用（全ページ） */}
           <div className="print-only">
             {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
               <div key={pageIdx} className="print-page">
-                {/* ページ番号 */}
                 <div style={{ textAlign: 'right', fontSize: '8px', color: '#999', marginBottom: '4px' }}>
                   {pageIdx + 1} / {totalPrintPages}
                 </div>
-                {/* 4列×2行グリッド */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '4mm', height: '270mm' }}>
                   {getPageRows(pageIdx).map((r, i) => (
                     <div key={i} style={{ border: '1.5px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -722,8 +679,7 @@ export default function Home() {
                         <>
                           <div style={{ padding: '2mm 3mm', borderBottom: '0.5px solid #999', background: '#f5f5f5' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7pt', fontWeight: 'bold' }}>
-                              <span>{r.voucher_no}</span>
-                              <span>{r.date}</span>
+                              <span>{r.voucher_no}</span><span>{r.date}</span>
                             </div>
                             <div style={{ fontSize: '7pt' }}>{r.account}　¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}</div>
                             {r.memo && <div style={{ fontSize: '6pt', color: '#555' }}>{r.memo}</div>}
@@ -737,9 +693,7 @@ export default function Home() {
                             )}
                           </div>
                         </>
-                      ) : (
-                        <div style={{ flex: 1 }} />
-                      )}
+                      ) : <div style={{ flex: 1 }} />}
                     </div>
                   ))}
                 </div>
