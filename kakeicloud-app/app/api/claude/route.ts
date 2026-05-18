@@ -1,29 +1,27 @@
 /**
- * kakeicloud v1.7.1 | 2026/05/19
+ * kakeicloud v1.7.2 | 2026/05/19
  * kakeicloud-app/app/api/claude/route.ts
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import pdfParse from 'pdf-parse'
+// @ts-ignore
+import * as pdfParse from 'pdf-parse'
 
 // 取引行のみ抽出（個人情報を除外）
 function extractTransactionLines(text: string): string {
   const lines = text.split('\n').filter(l => l.trim().length > 2)
 
   const transactionLines = lines.filter(line => {
-    // 日付パターン
     const hasDate =
-      /\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(line) ||  // 2025/04/02
-      /\d{1,2}[\/\-]\d{1,2}/.test(line) ||               // 04/02
-      /\d{2,4}年\d{1,2}月\d{1,2}日/.test(line)           // 2025年4月2日
+      /\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(line) ||
+      /\d{1,2}[\/\-]\d{1,2}/.test(line) ||
+      /\d{2,4}年\d{1,2}月\d{1,2}日/.test(line)
 
-    // 金額パターン（3桁以上の数字）
     const hasAmount = /[\d,]{3,}/.test(line)
 
     return hasDate && hasAmount
   })
 
-  // 最大100行・個人情報になりやすい長い行を除外
   return transactionLines
     .filter(l => l.length < 200)
     .slice(0, 100)
@@ -86,14 +84,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: parsed })
     }
 
-    // PDF明細の処理（テキスト抽出→取引行フィルター→テキストとして送信）
+    // PDF明細の処理（テキスト抽出→取引行フィルター）
     if (type === 'pdf') {
-      // base64 → Buffer → テキスト抽出
       const buffer = Buffer.from(imageBase64, 'base64')
-      const pdfData = await pdfParse(buffer)
+
+      // @ts-ignore
+      const pdfFn = (pdfParse as any).default ?? pdfParse
+      const pdfData = await pdfFn(buffer)
       const rawText = pdfData.text
 
-      // 取引行のみ抽出（個人情報除外）
       const filteredText = extractTransactionLines(rawText)
 
       if (!filteredText.trim()) {
