@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.5.2 | 2026/05/18
+ * kakeicloud v1.5.3 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const VERSION = 'v1.5.2'
+const VERSION = 'v1.5.3'
 
 type Transaction = {
   id: string
@@ -77,7 +77,7 @@ export default function Home() {
   const [savedVoucherNo, setSavedVoucherNo] = useState<string | null>(null)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
-  const [printRows, setPrintRows] = useState<(Transaction | null)[]>([])
+  const [printPage, setPrintPage] = useState(0)
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
   const [newKind, setNewKind] = useState<'経費' | '売上' | 'その他'>('経費')
@@ -123,6 +123,51 @@ export default function Home() {
     )
   }
 
+  // 証憑票印刷用データ
+  const printableRows = rows.filter(r => r.voucher_no)
+  const totalPrintPages = Math.ceil(printableRows.length / 8)
+
+  function getPageRows(page: number): (Transaction | null)[] {
+    const result: (Transaction | null)[] = []
+    for (let i = 0; i < 8; i++) {
+      const idx = page * 8 + i
+      result.push(printableRows[idx] || null)
+    }
+    return result
+  }
+
+  function VoucherBox({ r, pageNum, totalPages }: { r: Transaction | null, pageNum?: number, totalPages?: number }) {
+    return (
+      <div style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {r ? (
+          <>
+            <div style={{ padding: '4px 6px', borderBottom: '1px solid #999', background: '#f9f9f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 'bold' }}>
+                <span>{r.voucher_no}</span>
+                <span>{r.date}</span>
+              </div>
+              <div style={{ fontSize: '9px' }}>
+                {r.account}　¥{r.amount.toLocaleString()}
+                {r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}
+              </div>
+              {r.memo && <div style={{ fontSize: '8px', color: '#555', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.memo}</div>}
+            </div>
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {r.method !== '現金' && (
+                <div style={{ textAlign: 'center', fontSize: '11px', color: '#444', lineHeight: 1.6 }}>
+                  <div style={{ fontWeight: 'bold', fontSize: '12px' }}>証憑無し</div>
+                  <div>{r.payment_account || methodToKind(r.method)}より</div>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>（空欄）</div>
+        )}
+      </div>
+    )
+  }
+
   async function generateVoucherNo(p: string, year: number): Promise<string> {
     const prefix = p === 'hiroshi' ? 'H' : 'W'
     const { count } = await supabase
@@ -156,14 +201,6 @@ export default function Home() {
     setBulkLoading(false)
     alert('採番完了しました！')
     fetchData()
-  }
-
-  function openPrint() {
-    const unconfirmed = rows.filter(r => !r.is_confirmed && r.voucher_no)
-    const padded: (Transaction | null)[] = [...unconfirmed.slice(0, 8)]
-    while (padded.length < 8) padded.push(null)
-    setPrintRows(padded)
-    setShowPrint(true)
   }
 
   function copyVoucher(r: Transaction) {
@@ -230,7 +267,6 @@ export default function Home() {
     return sum
   }, 0)
   const noVoucherCount = rows.filter(r => !r.voucher_no).length
-  const unconfirmedCount = rows.filter(r => !r.is_confirmed && r.voucher_no).length
 
   const modalOverlay: React.CSSProperties = {
     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -247,6 +283,16 @@ export default function Home() {
   }
   const modalFooter: React.CSSProperties = {
     padding: '12px 24px 20px', borderTop: '1px solid #e5e7eb', background: 'white',
+  }
+
+  const gridStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 1fr 1fr',
+    gridTemplateRows: '1fr 1fr',
+    gap: '6px',
+    padding: '8px',
+    height: 'calc(100vh - 100px)',
+    boxSizing: 'border-box',
   }
 
   return (
@@ -266,10 +312,10 @@ export default function Home() {
           style={{ padding: '8px 16px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
         <a href="/settings"
           style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '6px', textDecoration: 'none', color: '#374151', fontSize: '14px' }}>⚙️ 設定</a>
-        {unconfirmedCount > 0 && (
-          <button onClick={openPrint}
+        {printableRows.length > 0 && (
+          <button onClick={() => { setPrintPage(0); setShowPrint(true) }}
             style={{ padding: '8px 14px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
-            🖨 証憑票（{unconfirmedCount}件）
+            🖨 証憑票（{totalPrintPages}ページ）
           </button>
         )}
         <button onClick={() => setShowForm(true)}
@@ -595,25 +641,41 @@ export default function Home() {
         </div>
       )}
 
-      {/* A4証憑票印刷 4列×2行 */}
+      {/* A4証憑票印刷 */}
       {showPrint && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'auto' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'hidden' }}>
           <style>{`
             @media print {
               .no-print { display: none !important; }
+              .print-only { display: block !important; }
+              .print-page { page-break-after: always; }
+              .print-page:last-child { page-break-after: avoid; }
               @page { size: A4 portrait; margin: 8mm; }
               body { margin: 0; }
             }
+            @media screen {
+              .print-only { display: none; }
+            }
           `}</style>
-          <div className="no-print" style={{ padding: '12px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-            <span style={{ fontWeight: 'bold', fontSize: '14px' }}>🖨 証憑票（4列×2行・横向き）</span>
+
+          {/* 画面用ナビゲーション */}
+          <div className="no-print" style={{ padding: '10px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+            <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
+              style={{ padding: '8px 16px', background: printPage === 0 ? '#e5e7eb' : '#2563eb', color: printPage === 0 ? '#999' : 'white', border: 'none', borderRadius: '6px', cursor: printPage === 0 ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '16px' }}>←</button>
+            <span style={{ fontWeight: 'bold', fontSize: '15px' }}>{printPage + 1} / {totalPrintPages}ページ</span>
+            <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage === totalPrintPages - 1}
+              style={{ padding: '8px 16px', background: printPage === totalPrintPages - 1 ? '#e5e7eb' : '#2563eb', color: printPage === totalPrintPages - 1 ? '#999' : 'white', border: 'none', borderRadius: '6px', cursor: printPage === totalPrintPages - 1 ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '16px' }}>→</button>
             <button onClick={() => window.print()}
-              style={{ marginLeft: 'auto', padding: '8px 20px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>印刷</button>
+              style={{ marginLeft: 'auto', padding: '8px 20px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+              🖨 全{totalPrintPages}ページ印刷
+            </button>
             <button onClick={() => setShowPrint(false)}
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '6px', padding: '12px', height: 'calc(100vh - 60px)', boxSizing: 'border-box' }}>
-            {printRows.map((r, i) => (
+
+          {/* 画面プレビュー（現在のページ） */}
+          <div className="no-print" style={{ ...gridStyle }}>
+            {getPageRows(printPage).map((r, i) => (
               <div key={i} style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {r ? (
                   <>
@@ -622,16 +684,13 @@ export default function Home() {
                         <span>{r.voucher_no}</span>
                         <span>{r.date}</span>
                       </div>
-                      <div style={{ fontSize: '9px' }}>
-                        {r.account}　¥{r.amount.toLocaleString()}
-                        {r.tax_amount ? `（税¥${r.tax_amount.toLocaleString()}）` : ''}
-                      </div>
-                      {r.memo && <div style={{ fontSize: '8px', color: '#555' }}>{r.memo}</div>}
+                      <div style={{ fontSize: '9px' }}>{r.account}　¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}</div>
+                      {r.memo && <div style={{ fontSize: '8px', color: '#555', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.memo}</div>}
                     </div>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {r.method !== '現金' && (
                         <div style={{ textAlign: 'center', fontSize: '11px', color: '#444', lineHeight: 1.6 }}>
-                          <div style={{ fontWeight: 'bold', fontSize: '12px' }}>証憑無し</div>
+                          <div style={{ fontWeight: 'bold' }}>証憑無し</div>
                           <div>{r.payment_account || methodToKind(r.method)}より</div>
                         </div>
                       )}
@@ -640,6 +699,47 @@ export default function Home() {
                 ) : (
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>（空欄）</div>
                 )}
+              </div>
+            ))}
+          </div>
+
+          {/* 印刷用（全ページ） */}
+          <div className="print-only">
+            {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
+              <div key={pageIdx} className="print-page">
+                {/* ページ番号 */}
+                <div style={{ textAlign: 'right', fontSize: '8px', color: '#999', marginBottom: '4px' }}>
+                  {pageIdx + 1} / {totalPrintPages}
+                </div>
+                {/* 4列×2行グリッド */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '4mm', height: '270mm' }}>
+                  {getPageRows(pageIdx).map((r, i) => (
+                    <div key={i} style={{ border: '1.5px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      {r ? (
+                        <>
+                          <div style={{ padding: '2mm 3mm', borderBottom: '0.5px solid #999', background: '#f5f5f5' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '7pt', fontWeight: 'bold' }}>
+                              <span>{r.voucher_no}</span>
+                              <span>{r.date}</span>
+                            </div>
+                            <div style={{ fontSize: '7pt' }}>{r.account}　¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ''}</div>
+                            {r.memo && <div style={{ fontSize: '6pt', color: '#555' }}>{r.memo}</div>}
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {r.method !== '現金' && (
+                              <div style={{ textAlign: 'center', fontSize: '8pt', color: '#333', lineHeight: 1.8 }}>
+                                <div style={{ fontWeight: 'bold' }}>証憑無し</div>
+                                <div>{r.payment_account || methodToKind(r.method)}より</div>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ flex: 1 }} />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
