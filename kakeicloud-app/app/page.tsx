@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.5.1 | 2026/05/18
+ * kakeicloud v1.5.2 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const VERSION = 'v1.5.1'
+const VERSION = 'v1.5.2'
 
 type Transaction = {
   id: string
@@ -601,7 +601,7 @@ export default function Home() {
           <style>{`
             @media print {
               .no-print { display: none !important; }
-              @page { size: A4 landscape; margin: 8mm; }
+              @page { size: A4 portrait; margin: 8mm; }
               body { margin: 0; }
             }
           `}</style>
