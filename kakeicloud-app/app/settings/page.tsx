@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.5.5 | 2026/05/18
+ * kakeicloud v1.6.0 | 2026/05/18
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -182,6 +182,8 @@ export default function Settings() {
       {/* 操作セクション */}
       <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
         <h2 style={{ margin: '0 0 12px', fontSize: '15px', color: '#374151' }}>📋 操作</h2>
+
+        {/* 一括採番 */}
         <div style={{ marginBottom: '16px' }}>
           <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>一括採番</div>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -195,11 +197,22 @@ export default function Settings() {
             {bulkLoading ? '採番中...' : '🔢 一括採番を実行'}
           </button>
         </div>
-        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
+
+        {/* 証憑票印刷 */}
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>証憑票印刷</div>
           <a href="/"
             style={{ display: 'block', width: '100%', padding: '10px', background: '#7c3aed', color: 'white', borderRadius: '8px', fontWeight: 'bold', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>
             🖨 メイン画面の証憑票印刷へ →
+          </a>
+        </div>
+
+        {/* インポート */}
+        <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '16px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>インポート</div>
+          <a href="/import"
+            style={{ display: 'block', width: '100%', padding: '10px', background: '#2563eb', color: 'white', borderRadius: '8px', fontWeight: 'bold', textAlign: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>
+            📥 インポート画面へ →
           </a>
         </div>
       </div>
