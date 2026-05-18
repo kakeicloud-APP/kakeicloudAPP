@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.0 | 2026/05/19
+ * kakeicloud v1.7.3 | 2026/05/19
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -12,6 +12,7 @@ type PaymentAccount = {
   kind: string
   name: string
   person: string
+  account_number?: string
   is_active: boolean
 }
 
@@ -48,6 +49,7 @@ export default function Settings() {
   const [showAddRule, setShowAddRule] = useState(false)
   const [newKind, setNewKind] = useState('カード')
   const [newName, setNewName] = useState('')
+  const [newAccountNumber, setNewAccountNumber] = useState('')
   const [newPerson, setNewPerson] = useState('hiroshi')
   const [bulkPerson, setBulkPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -86,9 +88,16 @@ export default function Settings() {
   async function addAccount() {
     if (!newName.trim()) { alert('名前を入力してください'); return }
     await supabase.from('payment_accounts').insert({
-      kind: newKind, name: newName, person: newPerson, is_active: true,
+      kind: newKind,
+      name: newName,
+      account_number: newAccountNumber || null,
+      person: newPerson,
+      is_active: true,
     })
-    setNewName(''); setShowAdd(false); fetchAll()
+    setNewName('')
+    setNewAccountNumber('')
+    setShowAdd(false)
+    fetchAll()
   }
 
   async function toggleActive(id: string, current: boolean) {
@@ -253,18 +262,16 @@ export default function Settings() {
       {/* 自動分類ルール */}
       <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
         <h2 style={{ margin: '0 0 12px', fontSize: '15px', color: '#374151' }}>🤖 自動分類ルール</h2>
-
         {!showAddRule && (
           <button onClick={() => setShowAddRule(true)}
             style={{ width: '100%', padding: '10px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', marginBottom: '12px' }}>
             ＋ ルールを追加
           </button>
         )}
-
         {showAddRule && (
           <div style={{ border: '2px solid #7c3aed', borderRadius: '12px', padding: '16px', marginBottom: '12px', background: 'white' }}>
             <div style={{ marginBottom: '10px' }}>
-              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>キーワード（摘要に含まれる文字）</label>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>キーワード</label>
               <input value={ruleKeyword} onChange={e => setRuleKeyword(e.target.value)} placeholder="例：ドコモ、AMAZON"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
             </div>
@@ -300,15 +307,11 @@ export default function Settings() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={addRule}
-                style={{ flex: 1, padding: '10px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>保存</button>
-              <button onClick={() => { setShowAddRule(false); setRuleKeyword('') }}
-                style={{ flex: 1, padding: '10px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>キャンセル</button>
+              <button onClick={addRule} style={{ flex: 1, padding: '10px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>保存</button>
+              <button onClick={() => { setShowAddRule(false); setRuleKeyword('') }} style={{ flex: 1, padding: '10px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>キャンセル</button>
             </div>
           </div>
         )}
-
-        {/* ルール一覧 */}
         {loading ? <div>読み込み中...</div> : (
           <>
             {['keiji', 'kataji', 'confirm'].map(action => {
@@ -367,6 +370,11 @@ export default function Settings() {
               <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="例：楽天カード"
                 style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
             </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>カード番号下4桁（任意）</label>
+              <input value={newAccountNumber} onChange={e => setNewAccountNumber(e.target.value)} placeholder="例：****-1234"
+                style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+            </div>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>名義</label>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -378,7 +386,7 @@ export default function Settings() {
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={addAccount} style={{ flex: 1, padding: '12px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>保存</button>
-              <button onClick={() => { setShowAdd(false); setNewName('') }} style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>キャンセル</button>
+              <button onClick={() => { setShowAdd(false); setNewName(''); setNewAccountNumber('') }} style={{ flex: 1, padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>キャンセル</button>
             </div>
           </div>
         )}
@@ -394,7 +402,12 @@ export default function Settings() {
                     <div key={a.id} style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '6px', background: a.is_active ? 'white' : '#f9fafb', opacity: a.is_active ? 1 : 0.6 }}>
                       <div style={{ flex: 1 }}>
                         <span style={{ fontSize: '14px', fontWeight: 'bold' }}>{a.name}</span>
-                        <span style={{ fontSize: '12px', color: a.person === 'hiroshi' ? '#2563eb' : a.person === 'wife' ? '#dc2626' : '#6b7280', marginLeft: '6px' }}>（{personLabel(a.person)}）</span>
+                        {a.account_number && (
+                          <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: '6px' }}>{a.account_number}</span>
+                        )}
+                        <span style={{ fontSize: '12px', color: a.person === 'hiroshi' ? '#2563eb' : a.person === 'wife' ? '#dc2626' : '#6b7280', marginLeft: '6px' }}>
+                          （{personLabel(a.person)}）
+                        </span>
                       </div>
                       <button onClick={() => toggleActive(a.id, a.is_active)}
                         style={{ marginRight: '8px', padding: '4px 10px', background: a.is_active ? '#f0fdf4' : '#f3f4f6', border: `1px solid ${a.is_active ? '#16a34a' : '#9ca3af'}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', color: a.is_active ? '#16a34a' : '#9ca3af' }}>
