@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.4.2 | 2026/05/18
+ * kakeicloud v1.5.0 | 2026/05/18
  * kakeicloud-app/app/layout.tsx
  */
 
@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <MemoPanel />
         <div style={{ position: 'fixed', bottom: '8px', right: '8px', fontSize: '10px', color: '#9ca3af', zIndex: 400 }}>
-          kakeicloud v1.4.2
+          kakeicloud v1.5.0
         </div>
       </body>
     </html>
