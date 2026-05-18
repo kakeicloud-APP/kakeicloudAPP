@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.6.0 | 2026/05/18
+ * kakeicloud v1.7.0 | 2026/05/19
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -12,83 +12,103 @@ type ImportRow = {
   date: string
   description: string
   amount: number
-  status: 'pending' | 'kataji' | 'matched' | 'unmatched' | 'imported'
-  matchedVoucher?: string
+  status: 'keiji' | 'kataji' | 'confirm' | 'pending'
   account?: string
-  memo?: string
+}
+
+type ClassificationRule = {
+  id: string
+  keyword: string
+  action: string
+  account: string | null
+  person: string
+  priority: number
+}
+
+type PaymentAccount = {
+  id: string
+  kind: string
+  name: string
+  person: string
 }
 
 const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート']
 
 export default function ImportPage() {
-  const [tab, setTab] = useState('弥生CSV')
+  const [tab, setTab] = useState('カードCSV')
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [threshold, setThreshold] = useState(10000)
+  const [saving, setSaving] = useState(false)
+  const [rules, setRules] = useState<ClassificationRule[]>([])
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
+  const [selectedAccountId, setSelectedAccountId] = useState('')
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
-  // 既存仕訳を取得してマッチング
-  async function matchWithExisting(importRows: ImportRow[]): Promise<ImportRow[]> {
-    const { data: existing } = await supabase
-      .from('transactions')
-      .select('date, amount, voucher_no')
-      .eq('person', person)
+  useEffect(() => { fetchMasters() }, [person])
 
-    return importRows.map(r => {
-      if (r.amount < threshold) return { ...r, status: 'pending' }
-      const match = existing?.find(e =>
-        e.date === r.date && Math.abs(e.amount - r.amount) <= 10
+  async function fetchMasters() {
+    const [{ data: r }, { data: p }] = await Promise.all([
+      supabase.from('classification_rules').select('*').order('priority', { ascending: false }),
+      supabase.from('payment_accounts').select('*').eq('is_active', true)
+        .or(`person.eq.${person},person.eq.both`),
+    ])
+    setRules(r || [])
+    setPaymentAccounts(p || [])
+    if (p && p.length > 0) setSelectedAccountId(p[0].id)
+  }
+
+  function applyRules(rows: ImportRow[]): ImportRow[] {
+    const sorted = [...rules].sort((a, b) => b.priority - a.priority)
+    return rows.map(r => {
+      const matched = sorted.find(rule =>
+        r.description.toUpperCase().includes(rule.keyword.toUpperCase())
       )
-      if (match) return { ...r, status: 'matched', matchedVoucher: match.voucher_no }
-      return { ...r, status: 'unmatched' }
+      if (!matched) return { ...r, status: 'pending' }
+      return {
+        ...r,
+        status: matched.action as ImportRow['status'],
+        account: matched.account || r.account,
+      }
     })
   }
 
-  // 弥生CSV解析
   function parseYayoiCSV(text: string): ImportRow[] {
     const lines = text.split('\n').filter(l => l.trim())
-    const result: ImportRow[] = []
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',').map(c => c.replace(/"/g, '').trim())
-      if (!cols[0]) continue
-      result.push({
-        id: `yayoi-${i}`,
+    return lines.slice(1).map((line, i) => {
+      const cols = line.split(',').map(c => c.replace(/"/g, '').trim())
+      if (!cols[0]) return null
+      return {
+        id: `y-${i}`,
         date: cols[0],
         description: cols[4] || '',
         amount: parseInt(cols[2] || cols[3] || '0') || 0,
-        status: 'pending',
+        status: 'pending' as const,
         account: cols[1] || '',
-        memo: cols[4] || '',
-      })
-    }
-    return result
+      }
+    }).filter(Boolean) as ImportRow[]
   }
 
-  // カードCSV解析（楽天カード形式）
   function parseCardCSV(text: string): ImportRow[] {
     const lines = text.split('\n').filter(l => l.trim())
-    const result: ImportRow[] = []
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(',').map(c => c.replace(/"/g, '').trim())
-      if (!cols[0]) continue
+    return lines.slice(1).map((line, i) => {
+      const cols = line.split(',').map(c => c.replace(/"/g, '').trim())
+      if (!cols[0]) return null
       const amount = parseInt(cols[3]?.replace(/[^0-9-]/g, '') || '0') || 0
-      if (amount <= 0) continue
-      result.push({
-        id: `card-${i}`,
+      if (amount <= 0) return null
+      return {
+        id: `c-${i}`,
         date: cols[0].replace(/\//g, '-'),
         description: cols[1] || cols[2] || '',
         amount,
-        status: 'pending',
-      })
-    }
-    return result
+        status: 'pending' as const,
+      }
+    }).filter(Boolean) as ImportRow[]
   }
 
-  // ファイル選択処理
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -101,16 +121,15 @@ export default function ImportPage() {
     }
 
     const text = await file.text()
-
     let parsed: ImportRow[] = []
+
     if (tab === '弥生CSV') {
       parsed = parseYayoiCSV(text)
     } else if (tab === 'カードCSV') {
-      parsed = parseCardCSV(text)
-      parsed = await matchWithExisting(parsed)
+      parsed = applyRules(parseCardCSV(text))
     } else if (tab === 'PDF') {
       parsed = await handlePDF(file)
-      parsed = await matchWithExisting(parsed)
+      parsed = applyRules(parsed)
     }
 
     setRows(parsed)
@@ -118,17 +137,12 @@ export default function ImportPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  // PDF処理（Claude API）
   async function handlePDF(file: File): Promise<ImportRow[]> {
     const base64 = await fileToBase64(file)
     const res = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'pdf',
-        imageBase64: base64,
-        mediaType: 'application/pdf',
-      }),
+      body: JSON.stringify({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' }),
     })
     const { data } = await res.json()
     if (!Array.isArray(data)) return []
@@ -141,18 +155,15 @@ export default function ImportPage() {
     }))
   }
 
-  // レシート処理（Claude API）
   async function handleReceipt(file: File) {
     const base64 = await fileToBase64(file)
-    const mediaType = file.type || 'image/jpeg'
     const res = await fetch('/api/claude', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'receipt', imageBase64: base64, mediaType }),
+      body: JSON.stringify({ type: 'receipt', imageBase64: base64, mediaType: file.type || 'image/jpeg' }),
     })
     const { data } = await res.json()
     if (!data) { alert('読み取りに失敗しました'); return }
-    // フォームに自動入力するためURLパラメータで渡す
     const params = new URLSearchParams({
       date: data.date || '',
       amount: String(data.amount || ''),
@@ -168,102 +179,88 @@ export default function ImportPage() {
   function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(',')[1])
-      }
+      reader.onload = () => resolve((reader.result as string).split(',')[1])
       reader.onerror = reject
       reader.readAsDataURL(file)
     })
   }
 
-  // スワイプ処理
-  function onTouchStart(id: string, x: number) {
-    setSwipeStart({ id, x })
-  }
+  function onTouchStart(id: string, x: number) { setSwipeStart({ id, x }) }
 
   function onTouchMove(id: string, x: number) {
     if (!swipeStart || swipeStart.id !== id) return
     const diff = x - swipeStart.x
-    if (diff > 0) {
-      setSwipeOffset(prev => ({ ...prev, [id]: Math.min(diff, 120) }))
-    }
+    if (diff > 0) setSwipeOffset(prev => ({ ...prev, [id]: Math.min(diff, 100) }))
   }
 
   function onTouchEnd(id: string) {
-    const offset = swipeOffset[id] || 0
-    if (offset > 60) {
+    if ((swipeOffset[id] || 0) > 60) {
       setRows(prev => prev.map(r => r.id === id ? { ...r, status: 'kataji' } : r))
     }
     setSwipeOffset(prev => ({ ...prev, [id]: 0 }))
     setSwipeStart(null)
   }
 
-  function undoKataji(id: string) {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, status: 'pending' } : r))
+  function toggleStatus(id: string) {
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r
+      const next: ImportRow['status'] = r.status === 'kataji' ? 'pending' : 'kataji'
+      return { ...r, status: next }
+    }))
   }
 
-  // 取込実行
-  async function importAll() {
-    const targets = rows.filter(r => r.status !== 'kataji')
-    if (targets.length === 0) { alert('取込対象がありません'); return }
-    if (!confirm(`${targets.length}件を取込みます。よろしいですか？`)) return
+  async function saveToStaging() {
+    if (rows.length === 0) { alert('データがありません'); return }
+    if (!confirm(`${rows.length}件をstagingに保存します。よろしいですか？`)) return
 
-    setLoading(true)
-    const year = new Date().getFullYear()
+    setSaving(true)
+    const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
+    const sourceName = selectedAccount?.name || '不明'
+    const sourceType = selectedAccount?.kind || 'card'
 
-    for (const r of targets) {
-      await supabase.from('transactions').insert({
+    for (const r of rows) {
+      await supabase.from('import_staging').insert({
         person,
+        source_type: sourceType,
+        source_name: sourceName,
         date: r.date,
-        account: r.account || '雑費',
+        description: r.description,
         amount: r.amount,
-        tax_type: '課税仕入',
-        tax_rate: 10,
-        tax_amount: Math.round(r.amount * 10 / 110),
-        memo: r.description || r.memo || '',
-        method: '未払金',
-        year: parseInt(r.date.split('-')[0]) || year,
-        is_closing: false,
-        is_confirmed: false,
+        status: r.status,
       })
     }
 
-    setLoading(false)
-    alert(`${targets.length}件を取込みました！`)
+    setSaving(false)
+    alert(`${rows.length}件を保存しました！\n明細帳で確認・仕分けできます。`)
     setRows([])
   }
 
-  const statusColor = (status: ImportRow['status'], amount: number) => {
-    if (status === 'kataji') return '#f3f4f6'
-    if (status === 'unmatched') return '#fef2f2'
-    if (status === 'matched') return '#f0fdf4'
-    if (amount >= threshold) return '#fffbeb'
-    return 'white'
+  const statusStyle = (status: ImportRow['status'], amount: number) => {
+    if (status === 'kataji') return { bg: '#f3f4f6', border: '#9ca3af', label: '家事', color: '#6b7280' }
+    if (status === 'keiji') return { bg: '#f0fdf4', border: '#16a34a', label: '経費', color: '#16a34a' }
+    if (status === 'confirm') return { bg: '#fffbeb', border: '#f59e0b', label: '要確認', color: '#d97706' }
+    if (amount >= 30000) return { bg: '#fef2f2', border: '#dc2626', label: '¥30,000+', color: '#dc2626' }
+    if (amount >= 10000) return { bg: '#fffbeb', border: '#f59e0b', label: '¥10,000+', color: '#d97706' }
+    return { bg: 'white', border: '#e5e7eb', label: '', color: '#6b7280' }
   }
 
-  const statusBar = (status: ImportRow['status'], amount: number) => {
-    if (status === 'kataji') return { color: '#9ca3af', label: '家事' }
-    if (status === 'unmatched') return { color: '#dc2626', label: '未一致' }
-    if (status === 'matched') return { color: '#16a34a', label: '一致' }
-    if (amount >= threshold) return { color: '#f59e0b', label: '要確認' }
-    return null
+  const counts = {
+    keiji: rows.filter(r => r.status === 'keiji').length,
+    kataji: rows.filter(r => r.status === 'kataji').length,
+    confirm: rows.filter(r => r.status === 'confirm').length,
+    pending: rows.filter(r => r.status === 'pending').length,
   }
-
-  const pendingCount = rows.filter(r => r.status !== 'kataji').length
-  const katajiCount = rows.filter(r => r.status === 'kataji').length
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
 
-      {/* ヘッダ */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
         <a href="/" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
         <h1 style={{ margin: 0, fontSize: '20px' }}>📥 インポート</h1>
       </div>
 
       {/* 対象者 */}
-      <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+      <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 20px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
         <button onClick={() => setPerson('wife')}
@@ -278,18 +275,16 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {/* 金額閾値（カード・PDFのみ） */}
+      {/* 口座選択（カード・PDF） */}
       {(tab === 'カードCSV' || tab === 'PDF') && (
-        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span style={{ fontSize: '13px', color: '#92400e' }}>マッチング閾値：</span>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {[5000, 10000, 30000].map(v => (
-              <button key={v} onClick={() => setThreshold(v)}
-                style={{ padding: '4px 10px', background: threshold === v ? '#f59e0b' : 'white', color: threshold === v ? 'white' : '#92400e', border: '1px solid #f59e0b', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
-                ¥{v.toLocaleString()}
-              </button>
+        <div style={{ marginBottom: '12px' }}>
+          <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px', color: '#374151' }}>取込元口座</label>
+          <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}
+            style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
+            {paymentAccounts.map(a => (
+              <option key={a.id} value={a.id}>{a.name}（{a.kind}）</option>
             ))}
-          </div>
+          </select>
         </div>
       )}
 
@@ -298,8 +293,7 @@ export default function ImportPage() {
         <div style={{ marginBottom: '16px' }}>
           <input ref={fileRef} type="file"
             accept={tab === 'PDF' ? '.pdf' : '.csv'}
-            onChange={handleFile}
-            style={{ display: 'none' }} />
+            onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
             style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
             {loading ? '解析中...' : `📁 ${tab}ファイルを選択`}
@@ -325,87 +319,76 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* 凡例 */}
-      {rows.length > 0 && (tab === 'カードCSV' || tab === 'PDF') && (
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', fontSize: '11px' }}>
-          <span>🟢 証憑一致</span>
-          <span>🔴 未一致（¥{threshold.toLocaleString()}以上）</span>
-          <span>🟡 要確認</span>
-          <span>⬜ 家事除外</span>
-          <span style={{ color: '#6b7280' }}>← 右スワイプで家事除外</span>
-        </div>
+      {/* 凡例＋件数 */}
+      {rows.length > 0 && (
+        <>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
+            <span style={{ color: '#16a34a' }}>🟢 経費：{counts.keiji}件</span>
+            <span style={{ color: '#6b7280' }}>⬜ 家事：{counts.kataji}件</span>
+            <span style={{ color: '#d97706' }}>🟡 要確認：{counts.confirm}件</span>
+            <span style={{ color: '#374151' }}>⬜ 未分類：{counts.pending}件</span>
+          </div>
+          <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '12px' }}>
+            ← 右スワイプまたはタップで家事⇔未分類切替
+          </div>
+        </>
       )}
 
       {/* 一覧 */}
-      {rows.length > 0 && (
-        <>
-          <div style={{ marginBottom: '8px', fontSize: '13px', color: '#6b7280' }}>
-            取込予定：{pendingCount}件　家事除外：{katajiCount}件
-          </div>
-
-          {rows.map(r => {
-            const bar = statusBar(r.status, r.amount)
-            const offset = swipeOffset[r.id] || 0
-            return (
-              <div key={r.id} style={{ position: 'relative', marginBottom: '6px', overflow: 'hidden', borderRadius: '8px' }}>
-                {/* 家事ラベル（スワイプ時に出る） */}
-                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '80px', background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', color: '#6b7280', fontWeight: 'bold', borderRadius: '8px' }}>
-                  家事 →
-                </div>
-
-                {/* メインコンテンツ */}
-                <div
-                  onTouchStart={e => onTouchStart(r.id, e.touches[0].clientX)}
-                  onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
-                  onTouchEnd={() => onTouchEnd(r.id)}
-                  style={{
-                    transform: `translateX(${offset}px)`,
-                    transition: offset === 0 ? 'transform 0.2s' : 'none',
-                    background: statusColor(r.status, r.amount),
-                    border: '1px solid #e5e7eb',
-                    borderLeft: bar ? `4px solid ${bar.color}` : '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    padding: '10px 12px',
-                    opacity: r.status === 'kataji' ? 0.5 : 1,
-                    position: 'relative',
-                  }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '2px' }}>
-                        <span style={{ fontSize: '11px', color: '#6b7280' }}>{r.date}</span>
-                        {bar && (
-                          <span style={{ fontSize: '10px', background: bar.color, color: 'white', padding: '1px 6px', borderRadius: '4px' }}>{bar.label}</span>
-                        )}
-                        {r.matchedVoucher && (
-                          <span style={{ fontSize: '10px', color: '#16a34a' }}>{r.matchedVoucher}</span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '13px' }}>{r.description || r.memo}</div>
-                      {r.account && <div style={{ fontSize: '11px', color: '#6b7280' }}>{r.account}</div>}
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
-                      <div style={{ fontSize: '15px', fontWeight: 'bold' }}>¥{r.amount.toLocaleString()}</div>
-                      {r.status === 'kataji' && (
-                        <button onClick={() => undoKataji(r.id)}
-                          style={{ fontSize: '11px', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>戻す</button>
-                      )}
-                    </div>
+      {rows.map(r => {
+        const s = statusStyle(r.status, r.amount)
+        const offset = swipeOffset[r.id] || 0
+        return (
+          <div key={r.id} style={{ position: 'relative', marginBottom: '6px', overflow: 'hidden', borderRadius: '8px' }}>
+            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '70px', background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#6b7280', fontWeight: 'bold' }}>
+              家事 →
+            </div>
+            <div
+              onClick={() => toggleStatus(r.id)}
+              onTouchStart={e => onTouchStart(r.id, e.touches[0].clientX)}
+              onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
+              onTouchEnd={() => onTouchEnd(r.id)}
+              style={{
+                transform: `translateX(${offset}px)`,
+                transition: offset === 0 ? 'transform 0.2s' : 'none',
+                background: s.bg,
+                border: `1px solid ${s.border}`,
+                borderLeft: `4px solid ${s.border}`,
+                borderRadius: '8px',
+                padding: '10px 12px',
+                opacity: r.status === 'kataji' ? 0.5 : 1,
+                cursor: 'pointer',
+              }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px' }}>
+                    <span style={{ fontSize: '11px', color: '#6b7280' }}>{r.date}</span>
+                    {s.label && (
+                      <span style={{ fontSize: '10px', background: s.border, color: 'white', padding: '1px 6px', borderRadius: '4px' }}>{s.label}</span>
+                    )}
                   </div>
+                  <div style={{ fontSize: '13px' }}>{r.description}</div>
+                  {r.account && <div style={{ fontSize: '11px', color: '#6b7280' }}>{r.account}</div>}
+                </div>
+                <div style={{ fontSize: '15px', fontWeight: 'bold', marginLeft: '12px', flexShrink: 0 }}>
+                  ¥{r.amount.toLocaleString()}
                 </div>
               </div>
-            )
-          })}
-
-          {/* 取込ボタン */}
-          <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
-            <button onClick={importAll} disabled={loading || pendingCount === 0}
-              style={{ flex: 1, padding: '14px', background: pendingCount === 0 ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: pendingCount === 0 ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-              ✅ {pendingCount}件を取込む
-            </button>
-            <button onClick={() => setRows([])}
-              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>クリア</button>
+            </div>
           </div>
-        </>
+        )
+      })}
+
+      {/* 保存ボタン */}
+      {rows.length > 0 && (
+        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', position: 'sticky', bottom: '16px' }}>
+          <button onClick={saveToStaging} disabled={saving}
+            style={{ flex: 1, padding: '14px', background: saving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+            {saving ? '保存中...' : `💾 ${rows.length}件をstagingに保存`}
+          </button>
+          <button onClick={() => setRows([])}
+            style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>クリア</button>
+        </div>
       )}
     </div>
   )
