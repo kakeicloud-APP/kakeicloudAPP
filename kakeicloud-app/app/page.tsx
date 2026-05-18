@@ -1,11 +1,13 @@
 /**
- * kakeicloud v1.4.2 | 2026/05/18
+ * kakeicloud v1.5.1 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+
+const VERSION = 'v1.5.1'
 
 type Transaction = {
   id: string
@@ -25,6 +27,14 @@ type Transaction = {
   is_closing: boolean
   is_confirmed: boolean
   voucher_no?: string
+}
+
+type PaymentAccount = {
+  id: string
+  kind: string
+  name: string
+  person: string
+  is_active: boolean
 }
 
 const ACCOUNTS = {
@@ -60,6 +70,7 @@ function methodToKind(method: string): string {
 export default function Home() {
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<Transaction[]>([])
+  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -80,70 +91,68 @@ export default function Home() {
   const [newMemo, setNewMemo] = useState('')
   const [newNote, setNewNote] = useState('')
 
-  useEffect(() => { fetchData() }, [person])
+  useEffect(() => { fetchData(); fetchPaymentAccounts() }, [person])
   useEffect(() => { setNewAccount(ACCOUNTS[newKind][0]) }, [newKind])
   useEffect(() => {
     setNewTaxAmount(calcTax(parseInt(newAmount) || 0, newTaxRate))
   }, [newAmount, newTaxRate])
+  useEffect(() => {
+    const filtered = filteredPaymentAccounts(newPaymentKind)
+    setNewPaymentAccount(filtered[0]?.name || '')
+  }, [newPaymentKind, person, paymentAccounts])
 
   async function fetchData() {
     setLoading(true)
     const { data } = await supabase
-      .from('transactions')
-      .select('*')
-      .eq('person', person)
-      .order('date', { ascending: true })
+      .from('transactions').select('*')
+      .eq('person', person).order('date', { ascending: true })
     setRows(data || [])
     setLoading(false)
+  }
+
+  async function fetchPaymentAccounts() {
+    const { data } = await supabase
+      .from('payment_accounts').select('*')
+      .eq('is_active', true).order('kind').order('name')
+    setPaymentAccounts(data || [])
+  }
+
+  function filteredPaymentAccounts(kind: string) {
+    return paymentAccounts.filter(a =>
+      a.kind === kind && (a.person === person || a.person === 'both')
+    )
   }
 
   async function generateVoucherNo(p: string, year: number): Promise<string> {
     const prefix = p === 'hiroshi' ? 'H' : 'W'
     const { count } = await supabase
-      .from('transactions')
-      .select('*', { count: 'exact', head: true })
-      .eq('person', p)
-      .eq('year', year)
+      .from('transactions').select('*', { count: 'exact', head: true })
+      .eq('person', p).eq('year', year)
     const num = String((count || 0) + 1).padStart(4, '0')
     return `${prefix}${year}-${num}`
   }
 
   async function bulkAssignVoucherNo() {
     const { data: unassigned } = await supabase
-      .from('transactions')
-      .select('id, date, year')
-      .eq('person', person)
-      .is('voucher_no', null)
+      .from('transactions').select('id, date, year')
+      .eq('person', person).is('voucher_no', null)
       .order('date', { ascending: true })
-
-    if (!unassigned || unassigned.length === 0) {
-      alert('採番が必要なデータはありません')
-      return
-    }
+    if (!unassigned || unassigned.length === 0) { alert('採番が必要なデータはありません'); return }
     if (!confirm(`${unassigned.length}件に証憑番号を採番します。よろしいですか？`)) return
-
     setBulkLoading(true)
     const prefix = person === 'hiroshi' ? 'H' : 'W'
     const years = [...new Set(unassigned.map(r => r.year))]
-
     for (const year of years) {
       const { count } = await supabase
-        .from('transactions')
-        .select('*', { count: 'exact', head: true })
-        .eq('person', person)
-        .eq('year', year)
-        .not('voucher_no', 'is', null)
-
+        .from('transactions').select('*', { count: 'exact', head: true })
+        .eq('person', person).eq('year', year).not('voucher_no', 'is', null)
       let counter = (count || 0) + 1
-      const yearRecords = unassigned.filter(r => r.year === year)
-
-      for (const record of yearRecords) {
+      for (const record of unassigned.filter(r => r.year === year)) {
         const voucherNo = `${prefix}${year}-${String(counter).padStart(4, '0')}`
         await supabase.from('transactions').update({ voucher_no: voucherNo }).eq('id', record.id)
         counter++
       }
     }
-
     setBulkLoading(false)
     alert('採番完了しました！')
     fetchData()
@@ -151,8 +160,7 @@ export default function Home() {
 
   function openPrint() {
     const unconfirmed = rows.filter(r => !r.is_confirmed && r.voucher_no)
-    const selected = unconfirmed.slice(0, 8)
-    const padded: (Transaction | null)[] = [...selected]
+    const padded: (Transaction | null)[] = [...unconfirmed.slice(0, 8)]
     while (padded.length < 8) padded.push(null)
     setPrintRows(padded)
     setShowPrint(true)
@@ -161,48 +169,30 @@ export default function Home() {
   function copyVoucher(r: Transaction) {
     const line1 = `${r.voucher_no}  ${r.date}`
     const line2 = `${r.account} ¥${r.amount.toLocaleString()}（¥${(r.tax_amount || 0).toLocaleString()}）`
-    const text = `${line1}\n${line2}`
-    navigator.clipboard.writeText(text)
-    alert(`コピーしました！\n${text}`)
+    navigator.clipboard.writeText(`${line1}\n${line2}`)
+    alert(`コピーしました！\n${line1}\n${line2}`)
   }
 
   async function saveNew() {
-    if (!newAmount || parseInt(newAmount) <= 0) {
-      alert('金額を入力してください')
-      return
-    }
+    if (!newAmount || parseInt(newAmount) <= 0) { alert('金額を入力してください'); return }
     const year = parseInt(newDate.split('-')[0])
     const voucherNo = await generateVoucherNo(person, year)
     const { error } = await supabase.from('transactions').insert({
-      person,
-      date: newDate,
-      account: newAccount,
+      person, date: newDate, account: newAccount,
       amount: parseInt(newAmount),
-      tax_type: TAX_TYPE[newKind],
-      tax_rate: newTaxRate,
-      tax_amount: newTaxAmount,
+      tax_type: TAX_TYPE[newKind], tax_rate: newTaxRate, tax_amount: newTaxAmount,
       invoice_no: newInvoiceNo || null,
       method: KIND_TO_METHOD[newPaymentKind],
       payment_account: newPaymentKind !== '現金' ? newPaymentAccount || null : null,
-      memo: newMemo,
-      note: newNote,
-      year,
-      is_closing: false,
-      is_confirmed: false,
-      voucher_no: voucherNo,
+      memo: newMemo, note: newNote,
+      year, is_closing: false, is_confirmed: false, voucher_no: voucherNo,
     })
     if (error) { alert('保存エラー：' + error.message); return }
     setShowForm(false)
     setNewDate(new Date().toISOString().split('T')[0])
-    setNewKind('経費')
-    setNewAmount('')
-    setNewTaxRate(10)
-    setNewTaxAmount(0)
-    setNewInvoiceNo('')
-    setNewPaymentKind('カード')
-    setNewPaymentAccount('')
-    setNewMemo('')
-    setNewNote('')
+    setNewKind('経費'); setNewAmount(''); setNewTaxRate(10); setNewTaxAmount(0)
+    setNewInvoiceNo(''); setNewPaymentKind('カード'); setNewPaymentAccount('')
+    setNewMemo(''); setNewNote('')
     fetchData()
     setSavedVoucherNo(voucherNo)
   }
@@ -215,17 +205,11 @@ export default function Home() {
   async function saveEdit() {
     if (!editing) return
     await supabase.from('transactions').update({
-      date: editing.date,
-      account: editing.account,
-      amount: editing.amount,
-      tax_rate: editing.tax_rate,
-      tax_amount: editing.tax_amount,
+      date: editing.date, account: editing.account, amount: editing.amount,
+      tax_rate: editing.tax_rate, tax_amount: editing.tax_amount,
       invoice_no: editing.invoice_no || null,
-      method: editing.method,
-      payment_account: editing.payment_account || null,
-      memo: editing.memo,
-      note: editing.note,
-      person: editing.person,
+      method: editing.method, payment_account: editing.payment_account || null,
+      memo: editing.memo, note: editing.note, person: editing.person,
     }).eq('id', editing.id)
     setEditing(null)
     fetchData()
@@ -241,12 +225,10 @@ export default function Home() {
     if (r.account === '売上高' || r.account === '売上' || r.account === '仕入返品') return sum
     return sum + r.amount
   }, 0)
-
   const income = rows.reduce((sum, r) => {
     if (r.account === '売上高' || r.account === '売上') return sum + r.amount
     return sum
   }, 0)
-
   const noVoucherCount = rows.filter(r => !r.voucher_no).length
   const unconfirmedCount = rows.filter(r => !r.is_confirmed && r.voucher_no).length
 
@@ -269,23 +251,32 @@ export default function Home() {
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
-      <h1 style={{ fontSize: '20px', marginBottom: '16px' }}>kakeicloud 仕訳台帳</h1>
 
-      <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      {/* タイトル＋バージョン */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '16px' }}>
+        <h1 style={{ fontSize: '20px', margin: 0 }}>kakeicloud 仕訳台帳</h1>
+        <span style={{ fontSize: '11px', color: '#9ca3af' }}>{VERSION}</span>
+      </div>
+
+      {/* タブ＋ボタン */}
+      <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
         <button onClick={() => setPerson('wife')}
           style={{ padding: '8px 16px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+        <a href="/settings"
+          style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '6px', textDecoration: 'none', color: '#374151', fontSize: '14px' }}>⚙️ 設定</a>
         {unconfirmedCount > 0 && (
           <button onClick={openPrint}
-            style={{ padding: '8px 16px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
-            🖨 証憑票印刷（{unconfirmedCount}件）
+            style={{ padding: '8px 14px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+            🖨 証憑票（{unconfirmedCount}件）
           </button>
         )}
         <button onClick={() => setShowForm(true)}
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
 
+      {/* 一括採番バナー */}
       {noVoucherCount > 0 && (
         <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '13px', color: '#92400e' }}>証憑番号なし：<strong>{noVoucherCount}件</strong></span>
@@ -296,6 +287,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* サマリー */}
       <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fef2f2', padding: '12px 20px', borderRadius: '8px' }}>
           <div style={{ fontSize: '12px', color: '#666' }}>経費合計</div>
@@ -311,6 +303,7 @@ export default function Home() {
         </div>
       </div>
 
+      {/* 一覧 */}
       {loading ? <div>読み込み中...</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -428,12 +421,19 @@ export default function Home() {
               </div>
               {newPaymentKind !== '現金' && (
                 <div style={{ marginBottom: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
-                    {newPaymentKind === 'カード' ? 'カード名' : newPaymentKind === '銀行' ? '銀行名' : '電子マネー名'}
-                  </label>
-                  <input value={newPaymentAccount} onChange={e => setNewPaymentAccount(e.target.value)}
-                    placeholder={newPaymentKind === 'カード' ? '例：楽天カード' : newPaymentKind === '銀行' ? '例：PayPay銀行' : '例：PayPay'}
-                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>口座名</label>
+                  {filteredPaymentAccounts(newPaymentKind).length > 0 ? (
+                    <select value={newPaymentAccount} onChange={e => setNewPaymentAccount(e.target.value)}
+                      style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                      {filteredPaymentAccounts(newPaymentKind).map(a => (
+                        <option key={a.id} value={a.name}>{a.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ padding: '8px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '6px', fontSize: '12px', color: '#92400e' }}>
+                      ⚙️ 設定から口座を登録してください
+                    </div>
+                  )}
                 </div>
               )}
               <div style={{ marginBottom: '12px' }}>
@@ -541,10 +541,21 @@ export default function Home() {
               </div>
               {editing.method !== '現金' && (
                 <div style={{ marginBottom: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>口座名（カード名・銀行名）</label>
-                  <input value={editing.payment_account || ''} onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
-                    placeholder="例：楽天カード"
-                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>口座名</label>
+                  {filteredPaymentAccounts(methodToKind(editing.method) === '銀行' ? '銀行' : 'カード').length > 0 ? (
+                    <select value={editing.payment_account || ''}
+                      onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
+                      style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
+                      <option value="">選択してください</option>
+                      {filteredPaymentAccounts(methodToKind(editing.method) === '銀行' ? '銀行' : 'カード').map(a => (
+                        <option key={a.id} value={a.name}>{a.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input value={editing.payment_account || ''} onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
+                      placeholder="例：楽天カード"
+                      style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+                  )}
                 </div>
               )}
               <div style={{ marginBottom: '12px' }}>
@@ -594,7 +605,6 @@ export default function Home() {
               body { margin: 0; }
             }
           `}</style>
-
           <div className="no-print" style={{ padding: '12px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
             <span style={{ fontWeight: 'bold', fontSize: '14px' }}>🖨 証憑票（4列×2行・横向き）</span>
             <button onClick={() => window.print()}
@@ -602,14 +612,11 @@ export default function Home() {
             <button onClick={() => setShowPrint(false)}
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
-
-          {/* 4列×2行 グリッド */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '6px', padding: '12px', height: 'calc(100vh - 60px)', boxSizing: 'border-box' }}>
             {printRows.map((r, i) => (
               <div key={i} style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {r ? (
                   <>
-                    {/* 上部1/8：証憑情報（小さい文字） */}
                     <div style={{ padding: '4px 6px', borderBottom: '1px solid #999', background: '#f9f9f9' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 'bold' }}>
                         <span>{r.voucher_no}</span>
@@ -621,21 +628,17 @@ export default function Home() {
                       </div>
                       {r.memo && <div style={{ fontSize: '8px', color: '#555' }}>{r.memo}</div>}
                     </div>
-
-                    {/* 下部7/8：レシート貼り付け or 証憑無し */}
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {r.method !== '現金' ? (
+                      {r.method !== '現金' && (
                         <div style={{ textAlign: 'center', fontSize: '11px', color: '#444', lineHeight: 1.6 }}>
                           <div style={{ fontWeight: 'bold', fontSize: '12px' }}>証憑無し</div>
                           <div>{r.payment_account || methodToKind(r.method)}より</div>
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   </>
                 ) : (
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>
-                    （空欄）
-                  </div>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>（空欄）</div>
                 )}
               </div>
             ))}
