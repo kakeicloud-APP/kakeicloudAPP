@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.4.1 | 2026/05/18
+ * kakeicloud v1.4.2 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -18,6 +18,7 @@ type Transaction = {
   tax_amount?: number
   invoice_no?: string
   method: string
+  payment_account?: string
   memo: string
   note?: string
   year: number
@@ -32,11 +33,11 @@ const ACCOUNTS = {
   その他: ['普通預金', '現金', '未払金', '前払費用', '雑収入'],
 }
 
-const METHOD_TO_CREDIT: Record<string, string> = {
+const KIND_TO_METHOD: Record<string, string> = {
   '現金': '現金',
-  '銀行振込': '普通預金',
-  'クレジットカード': '未払金',
-  'PayPay': '未払金',
+  'カード': '未払金',
+  '銀行': '普通預金',
+  '電子マネー': '未払金',
 }
 
 const TAX_TYPE: Record<string, string> = {
@@ -48,6 +49,12 @@ const TAX_TYPE: Record<string, string> = {
 function calcTax(amount: number, rate: number): number {
   if (rate === 0) return 0
   return Math.round(amount * rate / (100 + rate))
+}
+
+function methodToKind(method: string): string {
+  if (method === '現金') return '現金'
+  if (method === '普通預金') return '銀行'
+  return 'カード'
 }
 
 export default function Home() {
@@ -68,7 +75,8 @@ export default function Home() {
   const [newTaxRate, setNewTaxRate] = useState(10)
   const [newTaxAmount, setNewTaxAmount] = useState(0)
   const [newInvoiceNo, setNewInvoiceNo] = useState('')
-  const [newMethod, setNewMethod] = useState('現金')
+  const [newPaymentKind, setNewPaymentKind] = useState<'現金' | 'カード' | '銀行' | '電子マネー'>('カード')
+  const [newPaymentAccount, setNewPaymentAccount] = useState('')
   const [newMemo, setNewMemo] = useState('')
   const [newNote, setNewNote] = useState('')
 
@@ -174,7 +182,8 @@ export default function Home() {
       tax_rate: newTaxRate,
       tax_amount: newTaxAmount,
       invoice_no: newInvoiceNo || null,
-      method: METHOD_TO_CREDIT[newMethod] || newMethod,
+      method: KIND_TO_METHOD[newPaymentKind],
+      payment_account: newPaymentKind !== '現金' ? newPaymentAccount || null : null,
       memo: newMemo,
       note: newNote,
       year,
@@ -190,7 +199,8 @@ export default function Home() {
     setNewTaxRate(10)
     setNewTaxAmount(0)
     setNewInvoiceNo('')
-    setNewMethod('現金')
+    setNewPaymentKind('カード')
+    setNewPaymentAccount('')
     setNewMemo('')
     setNewNote('')
     fetchData()
@@ -211,6 +221,8 @@ export default function Home() {
       tax_rate: editing.tax_rate,
       tax_amount: editing.tax_amount,
       invoice_no: editing.invoice_no || null,
+      method: editing.method,
+      payment_account: editing.payment_account || null,
       memo: editing.memo,
       note: editing.note,
       person: editing.person,
@@ -308,8 +320,8 @@ export default function Home() {
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>日付</th>
               <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>科目</th>
               <th style={{ padding: '8px', textAlign: 'right', border: '1px solid #e5e7eb' }}>金額</th>
-              <th style={{ padding: '8px', textAlign: 'right', border: '1px solid #e5e7eb' }}>消費税</th>
-              <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>摘要 / 備考</th>
+              <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>支払</th>
+              <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #e5e7eb' }}>摘要</th>
               <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #e5e7eb' }}>操作</th>
             </tr>
           </thead>
@@ -326,11 +338,11 @@ export default function Home() {
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{r.date}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb' }}>{r.account}</td>
                 <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right' }}>{r.amount.toLocaleString()}</td>
-                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', textAlign: 'right', fontSize: '12px', color: '#6b7280' }}>
-                  {r.tax_amount ? `¥${r.tax_amount.toLocaleString()}` : '－'}
-                  {r.tax_rate ? `(${r.tax_rate}%)` : ''}
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', fontSize: '11px' }}>
+                  <div>{methodToKind(r.method)}</div>
+                  {r.payment_account && <div style={{ color: '#6b7280' }}>{r.payment_account}</div>}
                 </td>
-                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', maxWidth: '200px' }}>
+                <td style={{ padding: '6px 8px', border: '1px solid #e5e7eb', maxWidth: '160px' }}>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.memo}</div>
                   {r.note && <div style={{ fontSize: '11px', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {r.note}</div>}
                 </td>
@@ -350,6 +362,7 @@ export default function Home() {
         </table>
       )}
 
+      {/* 新規入力モーダル */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -405,18 +418,28 @@ export default function Home() {
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', background: '#f9fafb' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払種別</label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {(['現金', 'カード', '銀行', '電子マネー'] as const).map(k => (
+                    <button key={k} onClick={() => setNewPaymentKind(k)}
+                      style={{ padding: '6px 12px', background: newPaymentKind === k ? '#0891b2' : '#e5e7eb', color: newPaymentKind === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>{k}</button>
+                  ))}
+                </div>
+              </div>
+              {newPaymentKind !== '現金' && (
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>
+                    {newPaymentKind === 'カード' ? 'カード名' : newPaymentKind === '銀行' ? '銀行名' : '電子マネー名'}
+                  </label>
+                  <input value={newPaymentAccount} onChange={e => setNewPaymentAccount(e.target.value)}
+                    placeholder={newPaymentKind === 'カード' ? '例：楽天カード' : newPaymentKind === '銀行' ? '例：PayPay銀行' : '例：PayPay'}
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
+                </div>
+              )}
+              <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>登録番号（任意・T＋13桁）</label>
                 <input value={newInvoiceNo} onChange={e => setNewInvoiceNo(e.target.value)} placeholder="T1234567890123"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払方法</label>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                  {Object.keys(METHOD_TO_CREDIT).map(m => (
-                    <button key={m} onClick={() => setNewMethod(m)}
-                      style={{ padding: '6px 12px', background: newMethod === m ? '#0891b2' : '#e5e7eb', color: newMethod === m ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>{m}</button>
-                  ))}
-                </div>
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>摘要（帳票に出る）</label>
@@ -425,14 +448,14 @@ export default function Home() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用・帳票に出ない）</label>
-                <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：楽天カード / Amazon.co.jp"
+                <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="例：Amazon プリンター用紙"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
             </div>
             <div style={modalFooter}>
               <div style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '12px', fontSize: '12px' }}>
                 <div style={{ color: '#666', marginBottom: '4px' }}>仕訳プレビュー</div>
-                <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{METHOD_TO_CREDIT[newMethod]}</strong></div>
+                <div>借方: <strong>{newAccount}</strong> / 貸方: <strong>{KIND_TO_METHOD[newPaymentKind]}</strong></div>
                 <div>税区分: <strong>{TAX_TYPE[newKind]}</strong> / 消費税: <strong>¥{newTaxAmount.toLocaleString()}</strong></div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -446,6 +469,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* 証憑番号モーダル */}
       {savedVoucherNo && (
         <div style={{ ...modalOverlay, zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
@@ -459,6 +483,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* 編集モーダル */}
       {editing && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -506,6 +531,23 @@ export default function Home() {
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払種別</label>
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {(['現金', 'カード', '銀行', '電子マネー']).map(k => (
+                    <button key={k} onClick={() => setEditing({ ...editing, method: KIND_TO_METHOD[k] })}
+                      style={{ padding: '6px 12px', background: methodToKind(editing.method) === k ? '#0891b2' : '#e5e7eb', color: methodToKind(editing.method) === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>{k}</button>
+                  ))}
+                </div>
+              </div>
+              {editing.method !== '現金' && (
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>口座名（カード名・銀行名）</label>
+                  <input value={editing.payment_account || ''} onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
+                    placeholder="例：楽天カード"
+                    style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
+                </div>
+              )}
+              <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>登録番号（任意）</label>
                 <input value={editing.invoice_no || ''} onChange={e => setEditing({ ...editing, invoice_no: e.target.value })}
                   placeholder="T1234567890123"
@@ -527,7 +569,6 @@ export default function Home() {
               <div>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>備考（自分用メモ）</label>
                 <input value={editing.note || ''} onChange={e => setEditing({ ...editing, note: e.target.value })}
-                  placeholder="例：楽天カード / Amazon.co.jp"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
               </div>
             </div>
@@ -543,36 +584,58 @@ export default function Home() {
         </div>
       )}
 
+      {/* A4証憑票印刷 4列×2行 */}
       {showPrint && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'auto' }}>
           <style>{`
             @media print {
               .no-print { display: none !important; }
+              @page { size: A4 landscape; margin: 8mm; }
               body { margin: 0; }
             }
           `}</style>
-          <div className="no-print" style={{ padding: '16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
-            <span style={{ fontWeight: 'bold' }}>🖨 証憑票印刷（未確認{unconfirmedCount}件 → 先頭8件）</span>
+
+          <div className="no-print" style={{ padding: '12px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
+            <span style={{ fontWeight: 'bold', fontSize: '14px' }}>🖨 証憑票（4列×2行・横向き）</span>
             <button onClick={() => window.print()}
               style={{ marginLeft: 'auto', padding: '8px 20px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>印刷</button>
             <button onClick={() => setShowPrint(false)}
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', padding: '16px', maxWidth: '800px', margin: '0 auto' }}>
+
+          {/* 4列×2行 グリッド */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '6px', padding: '12px', height: 'calc(100vh - 60px)', boxSizing: 'border-box' }}>
             {printRows.map((r, i) => (
-              <div key={i} style={{ border: '2px solid #000', borderRadius: '4px', padding: '12px', minHeight: '140px' }}>
+              <div key={i} style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                 {r ? (
                   <>
-                    <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '4px' }}>{r.voucher_no}</div>
-                    <div style={{ fontSize: '12px', color: '#555', marginBottom: '4px' }}>{r.date}</div>
-                    <div style={{ fontSize: '13px', marginBottom: '2px' }}>{r.account}</div>
-                    <div style={{ fontSize: '16px', fontWeight: 'bold', marginBottom: '2px' }}>¥{r.amount.toLocaleString()}</div>
-                    {r.tax_amount ? <div style={{ fontSize: '11px', color: '#555' }}>消費税 ¥{r.tax_amount.toLocaleString()}（{r.tax_rate}%）</div> : null}
-                    <div style={{ fontSize: '12px', marginTop: '6px', borderTop: '1px solid #ccc', paddingTop: '4px' }}>{r.memo}</div>
-                    {r.note && <div style={{ fontSize: '11px', color: '#777' }}>{r.note}</div>}
+                    {/* 上部1/8：証憑情報（小さい文字） */}
+                    <div style={{ padding: '4px 6px', borderBottom: '1px solid #999', background: '#f9f9f9' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', fontWeight: 'bold' }}>
+                        <span>{r.voucher_no}</span>
+                        <span>{r.date}</span>
+                      </div>
+                      <div style={{ fontSize: '9px' }}>
+                        {r.account}　¥{r.amount.toLocaleString()}
+                        {r.tax_amount ? `（税¥${r.tax_amount.toLocaleString()}）` : ''}
+                      </div>
+                      {r.memo && <div style={{ fontSize: '8px', color: '#555' }}>{r.memo}</div>}
+                    </div>
+
+                    {/* 下部7/8：レシート貼り付け or 証憑無し */}
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {r.method !== '現金' ? (
+                        <div style={{ textAlign: 'center', fontSize: '11px', color: '#444', lineHeight: 1.6 }}>
+                          <div style={{ fontWeight: 'bold', fontSize: '12px' }}>証憑無し</div>
+                          <div>{r.payment_account || methodToKind(r.method)}より</div>
+                        </div>
+                      ) : null}
+                    </div>
                   </>
                 ) : (
-                  <div style={{ color: '#ccc', fontSize: '12px', textAlign: 'center', paddingTop: '50px' }}>（空欄）</div>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ddd', fontSize: '11px' }}>
+                    （空欄）
+                  </div>
                 )}
               </div>
             ))}
