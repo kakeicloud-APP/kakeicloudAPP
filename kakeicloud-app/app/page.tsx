@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.5.3 | 2026/05/18
+ * kakeicloud v1.5.4 | 2026/05/18
  * kakeicloud-app/app/page.tsx
  */
 
@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const VERSION = 'v1.5.3'
+const VERSION = 'v1.5.4'
 
 type Transaction = {
   id: string
@@ -439,22 +439,25 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額（税込）</label>
-                <input type="number" value={newAmount} onChange={e => setNewAmount(e.target.value)} placeholder="0"
+                <input type="number" value={newAmount} onChange={e => {
+                    setNewAmount(e.target.value)
+                    setNewTaxAmount(calcTax(parseInt(e.target.value) || 0, newTaxRate))
+                  }} placeholder="0"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>税率</label>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   {[0, 8, 10].map(r => (
-                    <button key={r} onClick={() => setNewTaxRate(r)}
+                    <button key={r} onClick={() => { setNewTaxRate(r); setNewTaxAmount(calcTax(parseInt(newAmount) || 0, r)) }}
                       style={{ flex: 1, padding: '8px', background: newTaxRate === r ? '#dc2626' : '#e5e7eb', color: newTaxRate === r ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{r}%</button>
                   ))}
                 </div>
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>消費税額（自動計算）</label>
-                <input type="number" value={newTaxAmount} onChange={e => setNewTaxAmount(parseInt(e.target.value) || 0)}
-                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', background: '#f9fafb' }} />
+                <input type="number" value={newTaxAmount} readOnly
+                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', background: '#f0f0f0', color: '#666' }} />
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>支払種別</label>
