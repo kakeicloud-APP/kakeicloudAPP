@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.6.0 | 2026/05/18
+ * kakeicloud v1.6.1 | 2026/05/18
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -123,7 +123,6 @@ export default function Settings() {
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '600px', margin: '0 auto' }}>
 
-      {/* ヘッダ */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
         <a href="/" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
         <h1 style={{ margin: 0, fontSize: '20px' }}>⚙️ 設定</h1>
@@ -217,7 +216,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* 税率 */}
+      {/* 消費税 */}
       <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '12px', padding: '16px', marginBottom: '24px' }}>
         <h2 style={{ margin: '0 0 8px', fontSize: '15px', color: '#374151' }}>💴 消費税設定</h2>
         <div style={{ fontSize: '13px', color: '#374151' }}>
