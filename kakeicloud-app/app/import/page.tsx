@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.0 | 2026/05/19
+ * kakeicloud v1.7.4 | 2026/05/19
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -114,27 +114,39 @@ export default function ImportPage() {
     if (!file) return
     setLoading(true)
 
-    if (tab === 'レシート') {
-      await handleReceipt(file)
+    try {
+      if (tab === 'レシート') {
+        await handleReceipt(file)
+        return
+      }
+
+      let parsed: ImportRow[] = []
+
+      if (tab === '弥生CSV') {
+        const text = await file.text()
+        parsed = parseYayoiCSV(text)
+      } else if (tab === 'カードCSV') {
+        const text = await file.text()
+        parsed = applyRules(parseCardCSV(text))
+      } else if (tab === 'PDF') {
+        // PDFはテキスト変換せずそのまま渡す
+        parsed = await handlePDF(file)
+        parsed = applyRules(parsed)
+      }
+
+      setRows(parsed)
+
+      if (parsed.length === 0) {
+        alert('取引データが見つかりませんでした。ファイルを確認してください。')
+      }
+
+    } catch (error: any) {
+      console.error('Import error:', error)
+      alert(`取込エラー：${error.message || 'もう一度試してください'}`)
+    } finally {
       setLoading(false)
-      return
+      if (fileRef.current) fileRef.current.value = ''
     }
-
-    const text = await file.text()
-    let parsed: ImportRow[] = []
-
-    if (tab === '弥生CSV') {
-      parsed = parseYayoiCSV(text)
-    } else if (tab === 'カードCSV') {
-      parsed = applyRules(parseCardCSV(text))
-    } else if (tab === 'PDF') {
-      parsed = await handlePDF(file)
-      parsed = applyRules(parsed)
-    }
-
-    setRows(parsed)
-    setLoading(false)
-    if (fileRef.current) fileRef.current.value = ''
   }
 
   async function handlePDF(file: File): Promise<ImportRow[]> {
@@ -144,8 +156,16 @@ export default function ImportPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' }),
     })
-    const { data } = await res.json()
+
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'PDF解析に失敗しました')
+    }
+
+    const { data, error } = await res.json()
+    if (error) throw new Error(error)
     if (!Array.isArray(data)) return []
+
     return data.map((d: any, i: number) => ({
       id: `pdf-${i}`,
       date: d.date || '',
@@ -162,8 +182,16 @@ export default function ImportPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ type: 'receipt', imageBase64: base64, mediaType: file.type || 'image/jpeg' }),
     })
-    const { data } = await res.json()
-    if (!data) { alert('読み取りに失敗しました'); return }
+
+    if (!res.ok) {
+      const err = await res.json()
+      throw new Error(err.error || 'レシート読取に失敗しました')
+    }
+
+    const { data, error } = await res.json()
+    if (error) throw new Error(error)
+    if (!data) throw new Error('データを読み取れませんでした')
+
     const params = new URLSearchParams({
       date: data.date || '',
       amount: String(data.amount || ''),
@@ -180,7 +208,7 @@ export default function ImportPage() {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = () => resolve((reader.result as string).split(',')[1])
-      reader.onerror = reject
+      reader.onerror = () => reject(new Error('ファイル読込エラー'))
       reader.readAsDataURL(file)
     })
   }
@@ -212,27 +240,24 @@ export default function ImportPage() {
   async function saveToStaging() {
     if (rows.length === 0) { alert('データがありません'); return }
     if (!confirm(`${rows.length}件をstagingに保存します。よろしいですか？`)) return
-
     setSaving(true)
-    const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
-    const sourceName = selectedAccount?.name || '不明'
-    const sourceType = selectedAccount?.kind || 'card'
-
-    for (const r of rows) {
-      await supabase.from('import_staging').insert({
-        person,
-        source_type: sourceType,
-        source_name: sourceName,
-        date: r.date,
-        description: r.description,
-        amount: r.amount,
-        status: r.status,
-      })
+    try {
+      const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
+      const sourceName = selectedAccount?.name || '不明'
+      const sourceType = selectedAccount?.kind || 'card'
+      for (const r of rows) {
+        await supabase.from('import_staging').insert({
+          person, source_type: sourceType, source_name: sourceName,
+          date: r.date, description: r.description, amount: r.amount, status: r.status,
+        })
+      }
+      alert(`${rows.length}件を保存しました！\n明細帳で確認・仕分けできます。`)
+      setRows([])
+    } catch (error: any) {
+      alert(`保存エラー：${error.message}`)
+    } finally {
+      setSaving(false)
     }
-
-    setSaving(false)
-    alert(`${rows.length}件を保存しました！\n明細帳で確認・仕分けできます。`)
-    setRows([])
   }
 
   const statusStyle = (status: ImportRow['status'], amount: number) => {
@@ -259,7 +284,6 @@ export default function ImportPage() {
         <h1 style={{ margin: 0, fontSize: '20px' }}>📥 インポート</h1>
       </div>
 
-      {/* 対象者 */}
       <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 20px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -267,7 +291,6 @@ export default function ImportPage() {
           style={{ padding: '8px 20px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
       </div>
 
-      {/* タブ */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => { setTab(t); setRows([]) }}
@@ -275,20 +298,24 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {/* 口座選択（カード・PDF） */}
       {(tab === 'カードCSV' || tab === 'PDF') && (
         <div style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px', color: '#374151' }}>取込元口座</label>
-          <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}
-            style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
-            {paymentAccounts.map(a => (
-              <option key={a.id} value={a.id}>{a.name}（{a.kind}）</option>
-            ))}
-          </select>
+          {paymentAccounts.length > 0 ? (
+            <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}
+              style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
+              {paymentAccounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name}（{a.kind}）</option>
+              ))}
+            </select>
+          ) : (
+            <div style={{ padding: '10px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', fontSize: '13px', color: '#92400e' }}>
+              ⚙️ 設定から口座を登録してください
+            </div>
+          )}
         </div>
       )}
 
-      {/* ファイル選択 */}
       {tab !== 'レシート' && (
         <div style={{ marginBottom: '16px' }}>
           <input ref={fileRef} type="file"
@@ -296,12 +323,11 @@ export default function ImportPage() {
             onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
             style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? '解析中...' : `📁 ${tab}ファイルを選択`}
+            {loading ? '解析中... しばらくお待ちください' : `📁 ${tab}ファイルを選択`}
           </button>
         </div>
       )}
 
-      {/* レシート */}
       {tab === 'レシート' && (
         <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
           <input ref={cameraRef} type="file" accept="image/*" capture="environment"
@@ -319,7 +345,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* 凡例＋件数 */}
       {rows.length > 0 && (
         <>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap', fontSize: '12px' }}>
@@ -334,7 +359,6 @@ export default function ImportPage() {
         </>
       )}
 
-      {/* 一覧 */}
       {rows.map(r => {
         const s = statusStyle(r.status, r.amount)
         const offset = swipeOffset[r.id] || 0
@@ -379,7 +403,6 @@ export default function ImportPage() {
         )
       })}
 
-      {/* 保存ボタン */}
       {rows.length > 0 && (
         <div style={{ marginTop: '16px', display: 'flex', gap: '8px', position: 'sticky', bottom: '16px' }}>
           <button onClick={saveToStaging} disabled={saving}
