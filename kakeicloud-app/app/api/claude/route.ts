@@ -1,125 +1,114 @@
 /**
- * kakeicloud v1.7.4 | 2026/05/19
+ * kakeicloud v1.7.5 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-// @ts-ignore
-import * as pdfParse from 'pdf-parse'
 
 export const maxDuration = 60
 
-function extractTransactionLines(text: string): string {
-  const lines = text.split('\n').filter(l => l.trim().length > 2)
-  const transactionLines = lines.filter(line => {
-    const hasDate =
-      /\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(line) ||
-      /\d{1,2}[\/\-]\d{1,2}/.test(line) ||
-      /\d{2,4}年\d{1,2}月\d{1,2}日/.test(line)
-    const hasAmount = /[\d,]{3,}/.test(line)
-    return hasDate && hasAmount
-  })
-  return transactionLines.filter(l => l.length < 200).slice(0, 100).join('\n')
-}
+const client = new Anthropic()
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = await request.json()
-    const { type, imageBase64, mediaType } = body
-
-    if (type === 'receipt') {
-      const prompt = `このレシート・領収書から以下の情報をJSONのみで返してください。説明文不要。
-{
-  "date": "YYYY-MM-DD",
-  "store_name": "店舗名",
-  "amount": 税込金額（数値）,
-  "tax_amount": 消費税額（数値）,
-  "tax_rate": 税率（0/8/10）,
-  "invoice_no": "登録番号T+13桁（なければnull）",
-  "memo": "品目の簡潔な説明",
-  "account": "勘定科目（消耗品費/通信費/旅費交通費/接待交際費/地代家賃/水道光熱費/修繕費/広告宣伝費/外注費/雑費から選択）"
-}`
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY!,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
-              { type: 'text', text: prompt },
-            ],
-          }],
-        }),
-      })
-      const data = await response.json()
-      if (!response.ok) return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
-      const text = data.content?.[0]?.text || ''
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
-      return NextResponse.json({ success: true, data: parsed })
-    }
+    const { type, imageBase64, mediaType } = await req.json()
 
     if (type === 'pdf') {
-      const buffer = Buffer.from(imageBase64, 'base64')
-      // @ts-ignore
-      const pdfFn = (pdfParse as any).default ?? pdfParse
-      const pdfData = await pdfFn(buffer)
-      const filteredText = extractTransactionLines(pdfData.text)
+      const response = await client.beta.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        betas: ['pdfs-2024-09-25'],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                source: {
+                  type: 'base64',
+                  media_type: 'application/pdf',
+                  data: imageBase64,
+                },
+              } as any,
+              {
+                type: 'text',
+                text: `このPDFはクレジットカードまたは銀行の明細書です。
+取引明細を全件抽出してJSON配列のみを返してください。
+説明文・マークダウン記号は不要です。
 
-      if (!filteredText.trim()) {
-        return NextResponse.json({
-          success: false,
-          error: 'PDFから取引データを抽出できませんでした。CSVでのインポートをお試しください。'
-        }, { status: 400 })
-      }
-
-      const prompt = `以下は銀行・カード明細の取引行データです。
-JSONのみで返してください。説明文不要。
-支出（引き落とし）のみ抽出し、入金・振込は除外してください。
-
+形式：
 [
-  {
-    "date": "YYYY-MM-DD",
-    "description": "摘要・店舗名",
-    "amount": 金額（数値・正の値）
-  }
+  {"date": "2025-10-26", "description": "利用先名", "amount": 1330},
+  ...
 ]
 
-データ：
-${filteredText}`
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY!,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 2000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
+ルール：
+- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
+- amountは正の整数（円）
+- descriptionは利用先名をそのまま記載`,
+              },
+            ],
+          },
+        ],
       })
-      const data = await response.json()
-      if (!response.ok) return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
-      const text = data.content?.[0]?.text || ''
-      const jsonMatch = text.match(/\[[\s\S]*\]/)
-      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
-      return NextResponse.json({ success: true, data: parsed })
+
+      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      const clean = text.replace(/```json\n?|\n?```/g, '').trim()
+      const data = JSON.parse(clean)
+      return NextResponse.json({ data })
+
+    } else if (type === 'receipt') {
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType as any,
+                  data: imageBase64,
+                },
+              },
+              {
+                type: 'text',
+                text: `このレシートから情報を抽出してJSONオブジェクトのみを返してください。
+説明文・マークダウン記号は不要です。
+
+形式：
+{
+  "store_name": "店名",
+  "date": "YYYY-MM-DD",
+  "amount": 税込金額（整数）,
+  "tax_amount": 消費税額（整数）,
+  "tax_rate": 税率（8または10）,
+  "memo": "摘要として使う短い説明",
+  "account": "推定科目（消耗品費/通信費/旅費交通費/接待交際費/雑費など）",
+  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）"
+}`,
+              },
+            ],
+          },
+        ],
+      })
+
+      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      const clean = text.replace(/```json\n?|\n?```/g, '').trim()
+      const data = JSON.parse(clean)
+      return NextResponse.json({ data })
     }
 
-    return NextResponse.json({ success: false, error: '不明なタイプです' }, { status: 400 })
+    return NextResponse.json({ error: '不明なtype' }, { status: 400 })
 
   } catch (error: any) {
-    console.error('API error:', error)
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    console.error('Claude API error:', error)
+    return NextResponse.json(
+      { error: error.message || 'Claude API エラー' },
+      { status: 500 }
+    )
   }
 }
