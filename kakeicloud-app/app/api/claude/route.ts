@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.2 | 2026/05/19
+ * kakeicloud v1.7.4 | 2026/05/19
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -7,25 +7,19 @@ import { NextRequest, NextResponse } from 'next/server'
 // @ts-ignore
 import * as pdfParse from 'pdf-parse'
 
-// 取引行のみ抽出（個人情報を除外）
+export const maxDuration = 60
+
 function extractTransactionLines(text: string): string {
   const lines = text.split('\n').filter(l => l.trim().length > 2)
-
   const transactionLines = lines.filter(line => {
     const hasDate =
       /\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/.test(line) ||
       /\d{1,2}[\/\-]\d{1,2}/.test(line) ||
       /\d{2,4}年\d{1,2}月\d{1,2}日/.test(line)
-
     const hasAmount = /[\d,]{3,}/.test(line)
-
     return hasDate && hasAmount
   })
-
-  return transactionLines
-    .filter(l => l.length < 200)
-    .slice(0, 100)
-    .join('\n')
+  return transactionLines.filter(l => l.length < 200).slice(0, 100).join('\n')
 }
 
 export async function POST(request: NextRequest) {
@@ -33,7 +27,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { type, imageBase64, mediaType } = body
 
-    // レシート（画像）の処理
     if (type === 'receipt') {
       const prompt = `このレシート・領収書から以下の情報をJSONのみで返してください。説明文不要。
 {
@@ -46,7 +39,6 @@ export async function POST(request: NextRequest) {
   "memo": "品目の簡潔な説明",
   "account": "勘定科目（消耗品費/通信費/旅費交通費/接待交際費/地代家賃/水道光熱費/修繕費/広告宣伝費/外注費/雑費から選択）"
 }`
-
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -60,40 +52,26 @@ export async function POST(request: NextRequest) {
           messages: [{
             role: 'user',
             content: [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: mediaType || 'image/jpeg',
-                  data: imageBase64,
-                },
-              },
+              { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
               { type: 'text', text: prompt },
             ],
           }],
         }),
       })
-
       const data = await response.json()
-      if (!response.ok) {
-        return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
-      }
+      if (!response.ok) return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
       const text = data.content?.[0]?.text || ''
       const jsonMatch = text.match(/\{[\s\S]*\}/)
       const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
       return NextResponse.json({ success: true, data: parsed })
     }
 
-    // PDF明細の処理（テキスト抽出→取引行フィルター）
     if (type === 'pdf') {
       const buffer = Buffer.from(imageBase64, 'base64')
-
       // @ts-ignore
       const pdfFn = (pdfParse as any).default ?? pdfParse
       const pdfData = await pdfFn(buffer)
-      const rawText = pdfData.text
-
-      const filteredText = extractTransactionLines(rawText)
+      const filteredText = extractTransactionLines(pdfData.text)
 
       if (!filteredText.trim()) {
         return NextResponse.json({
@@ -127,17 +105,11 @@ ${filteredText}`
         body: JSON.stringify({
           model: 'claude-sonnet-4-20250514',
           max_tokens: 2000,
-          messages: [{
-            role: 'user',
-            content: prompt,
-          }],
+          messages: [{ role: 'user', content: prompt }],
         }),
       })
-
       const data = await response.json()
-      if (!response.ok) {
-        return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
-      }
+      if (!response.ok) return NextResponse.json({ success: false, error: data.error?.message }, { status: 500 })
       const text = data.content?.[0]?.text || ''
       const jsonMatch = text.match(/\[[\s\S]*\]/)
       const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null
