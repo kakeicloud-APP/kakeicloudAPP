@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.5 | 2026/05/20
+ * kakeicloud v1.7.6 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -15,10 +15,9 @@ export async function POST(req: NextRequest) {
     const { type, imageBase64, mediaType } = await req.json()
 
     if (type === 'pdf') {
-      const response = await client.beta.messages.create({
+      const response = await client.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 2000,
-        betas: ['pdfs-2024-09-25'],
         messages: [
           {
             role: 'user',
