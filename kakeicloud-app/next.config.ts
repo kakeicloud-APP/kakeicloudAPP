@@ -1,7 +1,10 @@
-import type { NextConfig } from "next";
+/**
+ * kakeicloud v1.7.5 | 2026/05/20
+ * kakeicloud-app/next.config.ts
+ */
 
-const nextConfig: NextConfig = {
-  serverExternalPackages: ['pdf-parse'],
-};
+import type { NextConfig } from 'next'
 
-export default nextConfig;
+const nextConfig: NextConfig = {}
+
+export default nextConfig
