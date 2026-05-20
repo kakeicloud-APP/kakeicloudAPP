@@ -1,13 +1,12 @@
 /**
- * kakeicloud v1.6.1 | 2026/05/18
+ * kakeicloud v1.8.6 | 2026/05/20
  * kakeicloud-app/app/page.tsx
  */
 
 'use client'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-
-const VERSION = 'v1.6.1'
+import { VERSION } from '../lib/version'
 
 type Transaction = {
   id: string
@@ -40,6 +39,7 @@ type PaymentAccount = {
 const ACCOUNTS = {
   経費: ['消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃', '水道光熱費', '修繕費', '広告宣伝費', '外注費', '減価償却費', '雑費', '開業費償却'],
   売上: ['売上高'],
+  控除: ['医療費', '寄附金', '社会保険料', '生命保険料', '地震保険料', '小規模企業共済'],
   その他: ['普通預金', '現金', '未払金', '前払費用', '雑収入'],
 }
 
@@ -53,6 +53,7 @@ const KIND_TO_METHOD: Record<string, string> = {
 const TAX_TYPE: Record<string, string> = {
   経費: '課税仕入',
   売上: '課税売上',
+  控除: '対象外',
   その他: '対象外',
 }
 
@@ -80,7 +81,7 @@ export default function Home() {
   const [printPage, setPrintPage] = useState(0)
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split('T')[0])
-  const [newKind, setNewKind] = useState<'経費' | '売上' | 'その他'>('経費')
+  const [newKind, setNewKind] = useState<'経費' | '売上' | '控除' | 'その他'>('経費')
   const [newAccount, setNewAccount] = useState('消耗品費')
   const [newAmount, setNewAmount] = useState('')
   const [newTaxRate, setNewTaxRate] = useState(10)
@@ -252,8 +253,7 @@ export default function Home() {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr 1fr 1fr',
     gridTemplateRows: '1fr 1fr',
-    gap: '6px',
-    padding: '8px',
+    gap: '6px', padding: '8px',
     height: 'calc(100vh - 100px)',
     boxSizing: 'border-box',
   }
@@ -261,13 +261,11 @@ export default function Home() {
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '1000px', margin: '0 auto' }}>
 
-      {/* タイトル＋バージョン */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '16px' }}>
         <h1 style={{ fontSize: '20px', margin: 0 }}>kakeicloud 仕訳台帳</h1>
         <span style={{ fontSize: '11px', color: '#9ca3af' }}>{VERSION}</span>
       </div>
 
-      {/* タブ＋ボタン */}
       <div style={{ marginBottom: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 16px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -275,6 +273,8 @@ export default function Home() {
           style={{ padding: '8px 16px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
         <a href="/settings"
           style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '6px', textDecoration: 'none', color: '#374151', fontSize: '14px' }}>⚙️ 設定</a>
+        <a href="/import"
+          style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '6px', textDecoration: 'none', color: '#374151', fontSize: '14px' }}>📥 取込</a>
         {printableRows.length > 0 && (
           <button onClick={() => { setPrintPage(0); setShowPrint(true) }}
             style={{ padding: '8px 14px', background: '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
@@ -285,7 +285,6 @@ export default function Home() {
           style={{ marginLeft: 'auto', padding: '8px 20px', background: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>＋ 新規入力</button>
       </div>
 
-      {/* 一括採番バナー */}
       {noVoucherCount > 0 && (
         <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: '13px', color: '#92400e' }}>証憑番号なし：<strong>{noVoucherCount}件</strong></span>
@@ -296,7 +295,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* サマリー */}
       <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <div style={{ background: '#fef2f2', padding: '12px 20px', borderRadius: '8px' }}>
           <div style={{ fontSize: '12px', color: '#666' }}>経費合計</div>
@@ -312,7 +310,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 一覧 */}
       {loading ? <div>読み込み中...</div> : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
           <thead>
@@ -364,7 +361,6 @@ export default function Home() {
         </table>
       )}
 
-      {/* 新規入力モーダル */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -386,10 +382,10 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>種別</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {(['経費', '売上', 'その他'] as const).map(k => (
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {(['経費', '売上', '控除', 'その他'] as const).map(k => (
                     <button key={k} onClick={() => setNewKind(k)}
-                      style={{ flex: 1, padding: '8px', background: newKind === k ? '#7c3aed' : '#e5e7eb', color: newKind === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{k}</button>
+                      style={{ padding: '8px 12px', background: newKind === k ? '#7c3aed' : '#e5e7eb', color: newKind === k ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{k}</button>
                   ))}
                 </div>
               </div>
@@ -403,10 +399,7 @@ export default function Home() {
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>金額（税込）</label>
                 <input type="number" value={newAmount}
-                  onChange={e => {
-                    setNewAmount(e.target.value)
-                    setNewTaxAmount(calcTax(parseInt(e.target.value) || 0, newTaxRate))
-                  }}
+                  onChange={e => { setNewAmount(e.target.value); setNewTaxAmount(calcTax(parseInt(e.target.value) || 0, newTaxRate)) }}
                   placeholder="0"
                   style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box' }} />
               </div>
@@ -483,7 +476,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 証憑番号モーダル */}
       {savedVoucherNo && (
         <div style={{ ...modalOverlay, zIndex: 200 }}>
           <div style={{ background: 'white', padding: '32px', borderRadius: '12px', width: '300px', textAlign: 'center' }}>
@@ -497,7 +489,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* 編集モーダル */}
       {editing && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -553,31 +544,6 @@ export default function Home() {
                   ))}
                 </div>
               </div>
-              {editing.method !== '現金' && (
-                <div style={{ marginBottom: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>口座名</label>
-                  {filteredPaymentAccounts(methodToKind(editing.method) === '銀行' ? '銀行' : 'カード').length > 0 ? (
-                    <select value={editing.payment_account || ''}
-                      onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
-                      style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
-                      <option value="">選択してください</option>
-                      {filteredPaymentAccounts(methodToKind(editing.method) === '銀行' ? '銀行' : 'カード').map(a => (
-                        <option key={a.id} value={a.name}>{a.name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input value={editing.payment_account || ''} onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
-                      placeholder="例：楽天カード"
-                      style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
-                  )}
-                </div>
-              )}
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>登録番号（任意）</label>
-                <input value={editing.invoice_no || ''} onChange={e => setEditing({ ...editing, invoice_no: e.target.value })}
-                  placeholder="T1234567890123"
-                  style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px' }} />
-              </div>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>担当</label>
                 <select value={editing.person} onChange={e => setEditing({ ...editing, person: e.target.value })}
@@ -609,7 +575,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* A4証憑票印刷 */}
       {showPrint && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'white', zIndex: 1000, overflow: 'hidden' }}>
           <style>{`
@@ -623,7 +588,6 @@ export default function Home() {
             }
             @media screen { .print-only { display: none; } }
           `}</style>
-
           <div className="no-print" style={{ padding: '10px 16px', display: 'flex', gap: '8px', alignItems: 'center', borderBottom: '1px solid #e5e7eb', background: '#f9fafb' }}>
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: '8px 16px', background: printPage === 0 ? '#e5e7eb' : '#2563eb', color: printPage === 0 ? '#999' : 'white', border: 'none', borderRadius: '6px', cursor: printPage === 0 ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '16px' }}>←</button>
@@ -637,7 +601,6 @@ export default function Home() {
             <button onClick={() => setShowPrint(false)}
               style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>閉じる</button>
           </div>
-
           <div className="no-print" style={{ ...gridStyle }}>
             {getPageRows(printPage).map((r, i) => (
               <div key={i} style={{ border: '2px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -665,13 +628,10 @@ export default function Home() {
               </div>
             ))}
           </div>
-
           <div className="print-only">
             {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
               <div key={pageIdx} className="print-page">
-                <div style={{ textAlign: 'right', fontSize: '8px', color: '#999', marginBottom: '4px' }}>
-                  {pageIdx + 1} / {totalPrintPages}
-                </div>
+                <div style={{ textAlign: 'right', fontSize: '8px', color: '#999', marginBottom: '4px' }}>{pageIdx + 1} / {totalPrintPages}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '4mm', height: '270mm' }}>
                   {getPageRows(pageIdx).map((r, i) => (
                     <div key={i} style={{ border: '1.5px solid #000', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
