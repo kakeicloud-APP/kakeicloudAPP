@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.9 | 2026/05/20
+ * kakeicloud v1.8.0 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     if (type === 'pdf') {
       const result = await callClaude({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-3-5-sonnet-20241022',
         max_tokens: 2000,
         messages: [
           {
