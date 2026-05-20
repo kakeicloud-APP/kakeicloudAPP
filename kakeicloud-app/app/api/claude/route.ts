@@ -1,21 +1,37 @@
 /**
- * kakeicloud v1.7.6 | 2026/05/20
+ * kakeicloud v1.7.7 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
-import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 60
 
-const client = new Anthropic()
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
+
+async function callClaude(body: object) {
+  const res = await fetch(ANTHROPIC_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error?.message || 'Claude API エラー')
+  }
+  return res.json()
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { type, imageBase64, mediaType } = await req.json()
 
     if (type === 'pdf') {
-      const response = await client.messages.create({
+      const result = await callClaude({
         model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [
@@ -29,7 +45,7 @@ export async function POST(req: NextRequest) {
                   media_type: 'application/pdf',
                   data: imageBase64,
                 },
-              } as any,
+              },
               {
                 type: 'text',
                 text: `このPDFはクレジットカードまたは銀行の明細書です。
@@ -52,13 +68,13 @@ export async function POST(req: NextRequest) {
         ],
       })
 
-      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      const text = result.content[0].text
       const clean = text.replace(/```json\n?|\n?```/g, '').trim()
       const data = JSON.parse(clean)
       return NextResponse.json({ data })
 
     } else if (type === 'receipt') {
-      const response = await client.messages.create({
+      const result = await callClaude({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1000,
         messages: [
@@ -69,7 +85,7 @@ export async function POST(req: NextRequest) {
                 type: 'image',
                 source: {
                   type: 'base64',
-                  media_type: mediaType as any,
+                  media_type: mediaType || 'image/jpeg',
                   data: imageBase64,
                 },
               },
@@ -95,7 +111,7 @@ export async function POST(req: NextRequest) {
         ],
       })
 
-      const text = response.content[0].type === 'text' ? response.content[0].text : ''
+      const text = result.content[0].text
       const clean = text.replace(/```json\n?|\n?```/g, '').trim()
       const data = JSON.parse(clean)
       return NextResponse.json({ data })
