@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.8.2 | 2026/05/20
+ * kakeicloud v1.8.3 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -9,20 +9,19 @@ export const maxDuration = 60
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
-async function callClaude(body: object, isPdf = false) {
+async function callClaude(body: object) {
   const res = await fetch(ANTHROPIC_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': process.env.ANTHROPIC_API_KEY || '',
       'anthropic-version': '2023-06-01',
-      ...(isPdf ? { 'anthropic-beta': 'pdfs-2024-09-25' } : {}),
     },
     body: JSON.stringify(body),
   })
   if (!res.ok) {
     const err = await res.json()
-    throw new Error(err.error?.message || 'Claude API エラー')
+    throw new Error(err.error?.message || JSON.stringify(err))
   }
   return res.json()
 }
@@ -33,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     if (type === 'pdf') {
       const result = await callClaude({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [
           {
@@ -67,7 +66,7 @@ export async function POST(req: NextRequest) {
             ],
           },
         ],
-      }, true)
+      })
 
       const text = result.content[0].text
       const clean = text.replace(/```json\n?|\n?```/g, '').trim()
