@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.7.4 | 2026/05/19
+ * kakeicloud v1.8.1 | 2026/05/20
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -40,6 +40,7 @@ export default function ImportPage() {
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [rules, setRules] = useState<ClassificationRule[]>([])
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState('')
@@ -113,6 +114,7 @@ export default function ImportPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setLoading(true)
+    setErrorMsg(null)
 
     try {
       if (tab === 'レシート') {
@@ -129,7 +131,6 @@ export default function ImportPage() {
         const text = await file.text()
         parsed = applyRules(parseCardCSV(text))
       } else if (tab === 'PDF') {
-        // PDFはテキスト変換せずそのまま渡す
         parsed = await handlePDF(file)
         parsed = applyRules(parsed)
       }
@@ -142,7 +143,9 @@ export default function ImportPage() {
 
     } catch (error: any) {
       console.error('Import error:', error)
-      alert(`取込エラー：${error.message || 'もう一度試してください'}`)
+      const msg = error.message || 'もう一度試してください'
+      setErrorMsg(msg)
+      alert(`取込エラー：${msg}`)
     } finally {
       setLoading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -151,22 +154,44 @@ export default function ImportPage() {
 
   async function handlePDF(file: File): Promise<ImportRow[]> {
     const base64 = await fileToBase64(file)
-    const res = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' }),
-    })
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 25000)
+
+    let res: Response
+    try {
+      res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' }),
+        signal: controller.signal,
+      })
+    } catch (e: any) {
+      clearTimeout(timer)
+      if (e.name === 'AbortError') {
+        throw new Error('タイムアウト（25秒）：APIが応答しませんでした')
+      }
+      throw new Error(`通信エラー：${e.message}`)
+    }
+    clearTimeout(timer)
+
+    const text = await res.text()
 
     if (!res.ok) {
-      const err = await res.json()
-      throw new Error(err.error || 'PDF解析に失敗しました')
+      throw new Error(`APIエラー ${res.status}：${text}`)
     }
 
-    const { data, error } = await res.json()
-    if (error) throw new Error(error)
-    if (!Array.isArray(data)) return []
+    let json: any
+    try {
+      json = JSON.parse(text)
+    } catch {
+      throw new Error(`レスポンス解析失敗：${text.slice(0, 200)}`)
+    }
 
-    return data.map((d: any, i: number) => ({
+    if (json.error) throw new Error(json.error)
+    if (!Array.isArray(json.data)) throw new Error(`データ形式エラー：${text.slice(0, 200)}`)
+
+    return json.data.map((d: any, i: number) => ({
       id: `pdf-${i}`,
       date: d.date || '',
       description: d.description || '',
@@ -284,6 +309,13 @@ export default function ImportPage() {
         <h1 style={{ margin: 0, fontSize: '20px' }}>📥 インポート</h1>
       </div>
 
+      {/* エラー表示 */}
+      {errorMsg && (
+        <div style={{ background: '#fef2f2', border: '1px solid #dc2626', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px', fontSize: '13px', color: '#dc2626', wordBreak: 'break-all' }}>
+          ❌ {errorMsg}
+        </div>
+      )}
+
       <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 20px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -293,7 +325,7 @@ export default function ImportPage() {
 
       <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => { setTab(t); setRows([]) }}
+          <button key={t} onClick={() => { setTab(t); setRows([]); setErrorMsg(null) }}
             style={{ padding: '8px 16px', background: tab === t ? '#7c3aed' : '#e5e7eb', color: tab === t ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '13px' }}>{t}</button>
         ))}
       </div>
