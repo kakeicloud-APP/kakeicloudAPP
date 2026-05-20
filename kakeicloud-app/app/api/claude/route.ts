@@ -1,11 +1,12 @@
 /**
- * kakeicloud v1.7.8 | 2026/05/20
+ * kakeicloud v1.7.9 | 2026/05/20
  * kakeicloud-app/app/api/claude/route.ts
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 60
+export const runtime = 'edge'
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
 
