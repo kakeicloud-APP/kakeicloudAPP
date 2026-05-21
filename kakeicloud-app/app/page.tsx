@@ -4,7 +4,9 @@
 - kakeicloud-app/app/page.tsx
   */
 
-‘use client’
+'use client'
+
+
 import { useEffect, useState } from ‘react’
 import { supabase } from ‘../lib/supabase’
 import { VERSION } from ‘../lib/version’
