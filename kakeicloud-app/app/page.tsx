@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.4 | 2026/05/20
+ * kakeicloud v1.9.6 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -138,12 +138,13 @@ export default function Home() {
   }
 
   const printableRows = rows.filter(r => r.voucher_no)
-  const totalPrintPages = Math.ceil(printableRows.length / 8)
+  const ITEMS_PER_PAGE = 6
+  const totalPrintPages = Math.ceil(printableRows.length / ITEMS_PER_PAGE)
 
   function getPageRows(page: number): (Transaction | null)[] {
     const result: (Transaction | null)[] = []
-    for (let i = 0; i < 8; i++) {
-      const idx = page * 8 + i
+    for (let i = 0; i < ITEMS_PER_PAGE; i++) {
+      const idx = page * ITEMS_PER_PAGE + i
       result.push(printableRows[idx] || null)
     }
     return result
@@ -267,8 +268,10 @@ export default function Home() {
     padding: "12px 24px 20px", borderTop: "1px solid #e5e7eb", background: "white",
   }
   const gridStyle: React.CSSProperties = {
-    display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr",
-    gridTemplateRows: "1fr 1fr", gap: "6px", padding: "8px",
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 1fr",
+    gridTemplateRows: "1fr 1fr",
+    gap: "6px", padding: "8px",
     height: "calc(100vh - 100px)", boxSizing: "border-box",
   }
 
@@ -654,7 +657,7 @@ export default function Home() {
                   <span>{selectedYear}年 証憑票</span>
                   <span>{pageIdx + 1} / {totalPrintPages}</span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "4mm", height: "270mm" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "4mm", height: "270mm" }}>
                   {getPageRows(pageIdx).map((r, i) => (
                     <div key={i} style={{ border: "1.5px solid #000", display: "flex", flexDirection: "column", overflow: "hidden" }}>
                       {r ? (
