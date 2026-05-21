@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.1 | 2026/05/20
+ * kakeicloud v1.9.3 | 2026/05/20
  * kakeicloud-app/app/page.tsx
  */
 
@@ -63,7 +63,7 @@ const TAX_TYPE: Record<string, string> = {
 }
 
 const CURRENT_YEAR = new Date().getFullYear()
-const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => 2020 + i)
+const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i)
 
 function calcTax(amount: number, rate: number): number {
   if (rate === 0) return 0
@@ -301,10 +301,11 @@ export default function Home() {
           style={{ marginLeft: "auto", padding: "8px 20px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>＋ 新規</button>
       </div>
 
-      <div style={{ display: "flex", gap: "4px", marginBottom: "12px", overflowX: "auto", paddingBottom: "4px" }}>
+      {/* 年セレクター：降順・2段折り返し */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
         {YEARS.map(y => (
           <button key={y} onClick={() => setSelectedYear(y)}
-            style={{ padding: "6px 14px", background: selectedYear === y ? "#1e293b" : "#f3f4f6", color: selectedYear === y ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", whiteSpace: "nowrap", fontWeight: selectedYear === y ? "bold" : "normal" }}>
+            style={{ padding: "6px 14px", background: selectedYear === y ? "#1e293b" : "#f3f4f6", color: selectedYear === y ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: selectedYear === y ? "bold" : "normal" }}>
             {y}
           </button>
         ))}
