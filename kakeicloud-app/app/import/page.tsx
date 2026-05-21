@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.8.9 | 2026/05/20
+ * kakeicloud v1.9.2 | 2026/05/20
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -46,7 +46,7 @@ type ReceiptData = {
 
 type ReceiptKind = 'keiji' | 'iryo' | 'furusato' | 'kaji'
 
-const TABS = ['CSV', 'PDF', 'receipt']
+const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート']
 
 const KEIJI_ACCOUNTS = [
   '消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃',
@@ -75,7 +75,7 @@ const KIND_TO_TAX_TYPE: Record<ReceiptKind, string> = {
 }
 
 export default function ImportPage() {
-  const [tab, setTab] = useState('CSV')
+  const [tab, setTab] = useState('カードCSV')
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -117,6 +117,22 @@ export default function ImportPage() {
     })
   }
 
+  function parseYayoiCSV(text: string): ImportRow[] {
+    const lines = text.split('\n').filter(l => l.trim())
+    return lines.slice(1).map((line, i) => {
+      const cols = line.split(',').map(c => c.replace(/"/g, '').trim())
+      if (!cols[0]) return null
+      return {
+        id: `y-${i}`,
+        date: cols[0],
+        description: cols[4] || '',
+        amount: parseInt(cols[2] || cols[3] || '0') || 0,
+        status: 'pending' as const,
+        account: cols[1] || '',
+      }
+    }).filter(Boolean) as ImportRow[]
+  }
+
   function parseCardCSV(text: string): ImportRow[] {
     const lines = text.split('\n').filter(l => l.trim())
     return lines.slice(1).map((line, i) => {
@@ -142,7 +158,8 @@ export default function ImportPage() {
     try {
       if (tab === 'receipt') { await handleReceipt(file); return }
       let parsed: ImportRow[] = []
-      if (tab === 'CSV') parsed = applyRules(parseCardCSV(await file.text()))
+      if (tab === 'CSV' || tab === 'カードCSV') parsed = applyRules(parseCardCSV(await file.text()))
+      else if (tab === 'yayoi' || tab === '弥生CSV') parsed = applyRules(parseYayoiCSV(await file.text()))
       else if (tab === 'PDF') { parsed = await handlePDF(file); parsed = applyRules(parsed) }
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
@@ -308,12 +325,15 @@ export default function ImportPage() {
     return { bg: 'white', border: '#e5e7eb' }
   }
 
+  const isReceiptTab = tab === 'レシート'
+  const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
+
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
         <a href="/" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
-        <h1 style={{ margin: 0, fontSize: '20px' }}>📥 インポート</h1>
+        <h1 style={{ margin: 0, fontSize: '20px' }}>インポート</h1>
         <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: 'auto' }}>{VERSION}</span>
       </div>
 
@@ -330,14 +350,14 @@ export default function ImportPage() {
           style={{ padding: '8px 20px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
       </div>
 
-      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px' }}>
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => { setTab(t); setRows([]); setErrorMsg(null); setReceiptData(null) }}
-            style={{ padding: '8px 16px', background: tab === t ? '#7c3aed' : '#e5e7eb', color: tab === t ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>{t}</button>
+            style={{ padding: '8px 16px', background: tab === t ? '#7c3aed' : '#e5e7eb', color: tab === t ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '13px' }}>{t}</button>
         ))}
       </div>
 
-      {(tab === 'CSV' || tab === 'PDF') && paymentAccounts.length > 0 && (
+      {isPdfOrCsv && paymentAccounts.length > 0 && (
         <div style={{ marginBottom: '12px' }}>
           <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px', color: '#374151' }}>取込元口座</label>
           <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}
@@ -347,7 +367,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {tab !== 'receipt' && (
+      {!isReceiptTab && (
         <div style={{ marginBottom: '16px' }}>
           <input ref={fileRef} type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
@@ -357,7 +377,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {tab === 'receipt' && !receiptData && (
+      {isReceiptTab && !receiptData && (
         <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => cameraRef.current?.click()} disabled={loading}
@@ -374,9 +394,7 @@ export default function ImportPage() {
 
       {receiptData && (
         <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
-          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>
-            AI読取完了 - 内容確認
-          </div>
+          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>AI読取完了 - 内容確認</div>
           <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
               <span style={{ color: '#6b7280' }}>日付</span><span>{receiptData.date}</span>
