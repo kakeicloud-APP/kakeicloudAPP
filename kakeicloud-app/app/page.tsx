@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.3 | 2026/05/20
+ * kakeicloud v1.9.4 | 2026/05/20
  * kakeicloud-app/app/page.tsx
  */
 
@@ -294,14 +294,13 @@ export default function Home() {
         {printableRows.length > 0 && (
           <button onClick={() => { setPrintPage(0); setShowPrint(true) }}
             style={{ padding: "8px 14px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
-            証憑票（{totalPrintPages}P）
+            {selectedYear} 証憑票（{totalPrintPages}P）
           </button>
         )}
         <button onClick={() => setShowForm(true)}
           style={{ marginLeft: "auto", padding: "8px 20px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>＋ 新規</button>
       </div>
 
-      {/* 年セレクター：降順・2段折り返し */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
         {YEARS.map(y => (
           <button key={y} onClick={() => setSelectedYear(y)}
@@ -611,12 +610,12 @@ export default function Home() {
           <div className="no-print" style={{ padding: "10px 16px", display: "flex", gap: "8px", alignItems: "center", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: "8px 16px", background: printPage === 0 ? "#e5e7eb" : "#2563eb", color: printPage === 0 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === 0 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>←</button>
-            <span style={{ fontWeight: "bold", fontSize: "15px" }}>{printPage + 1} / {totalPrintPages}P</span>
+            <span style={{ fontWeight: "bold", fontSize: "15px" }}>{selectedYear}年　{printPage + 1} / {totalPrintPages}P</span>
             <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage === totalPrintPages - 1}
               style={{ padding: "8px 16px", background: printPage === totalPrintPages - 1 ? "#e5e7eb" : "#2563eb", color: printPage === totalPrintPages - 1 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === totalPrintPages - 1 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>→</button>
             <button onClick={() => window.print()}
               style={{ marginLeft: "auto", padding: "8px 20px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
-              全{totalPrintPages}P印刷
+              {selectedYear}年 全{totalPrintPages}P印刷
             </button>
             <button onClick={() => setShowPrint(false)}
               style={{ padding: "8px 16px", background: "#e5e7eb", border: "none", borderRadius: "6px", cursor: "pointer" }}>閉じる</button>
@@ -651,7 +650,10 @@ export default function Home() {
           <div className="print-only">
             {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
               <div key={pageIdx} className="print-page">
-                <div style={{ textAlign: "right", fontSize: "8px", color: "#999", marginBottom: "4px" }}>{pageIdx + 1} / {totalPrintPages}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: "#999", marginBottom: "4px" }}>
+                  <span>{selectedYear}年 証憑票</span>
+                  <span>{pageIdx + 1} / {totalPrintPages}</span>
+                </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "4mm", height: "270mm" }}>
                   {getPageRows(pageIdx).map((r, i) => (
                     <div key={i} style={{ border: "1.5px solid #000", display: "flex", flexDirection: "column", overflow: "hidden" }}>
