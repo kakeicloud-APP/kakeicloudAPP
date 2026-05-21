@@ -1,4 +1,4 @@
-// kakeicloud v1.8.5 | 2026/05/20
+// kakeicloud v1.9.3 | 2026/05/20
 // kakeicloud-app/lib/version.ts
 
-export const VERSION = 'v1.8.5'
+export const VERSION = "v1.9.3"
