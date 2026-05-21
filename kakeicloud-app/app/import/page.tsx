@@ -4,6 +4,7 @@
  */
 
 'use client'
+
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { VERSION } from '../../lib/version'
