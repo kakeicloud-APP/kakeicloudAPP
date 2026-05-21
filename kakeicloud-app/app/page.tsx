@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.6 | 2026/05/21
+ * kakeicloud v1.9.7 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -25,6 +25,7 @@ type Transaction = {
   year: number
   is_closing: boolean
   is_confirmed: boolean
+  is_void: boolean
   voucher_no?: string
 }
 
@@ -137,7 +138,7 @@ export default function Home() {
     )
   }
 
-  const printableRows = rows.filter(r => r.voucher_no)
+  const printableRows = rows.filter(r => r.voucher_no && !r.is_void)
   const ITEMS_PER_PAGE = 6
   const totalPrintPages = Math.ceil(printableRows.length / ITEMS_PER_PAGE)
 
@@ -152,11 +153,20 @@ export default function Home() {
 
   async function generateVoucherNo(p: string, year: number): Promise<string> {
     const prefix = p === "hiroshi" ? "H" : "W"
-    const { count } = await supabase
-      .from("transactions").select("*", { count: "exact", head: true })
-      .eq("person", p).eq("year", year)
-    const num = String((count || 0) + 1).padStart(4, "0")
-    return `${prefix}${year}-${num}`
+    const { data } = await supabase
+      .from("transactions")
+      .select("voucher_no")
+      .eq("person", p)
+      .eq("year", year)
+      .not("voucher_no", "is", null)
+      .order("voucher_no", { ascending: false })
+      .limit(1)
+    let nextNum = 1
+    if (data && data.length > 0 && data[0].voucher_no) {
+      const parts = data[0].voucher_no.split("-")
+      nextNum = parseInt(parts[1]) + 1
+    }
+    return `${prefix}${year}-${String(nextNum).padStart(4, "0")}`
   }
 
   async function bulkAssignVoucherNo() {
@@ -170,10 +180,16 @@ export default function Home() {
     const prefix = person === "hiroshi" ? "H" : "W"
     const years = [...new Set(unassigned.map(r => r.year))]
     for (const year of years) {
-      const { count } = await supabase
-        .from("transactions").select("*", { count: "exact", head: true })
-        .eq("person", person).eq("year", year).not("voucher_no", "is", null)
-      let counter = (count || 0) + 1
+      const { data: existing } = await supabase
+        .from("transactions").select("voucher_no")
+        .eq("person", person).eq("year", year)
+        .not("voucher_no", "is", null)
+        .order("voucher_no", { ascending: false })
+        .limit(1)
+      let counter = 1
+      if (existing && existing.length > 0 && existing[0].voucher_no) {
+        counter = parseInt(existing[0].voucher_no.split("-")[1]) + 1
+      }
       for (const record of unassigned.filter(r => r.year === year)) {
         const voucherNo = `${prefix}${year}-${String(counter).padStart(4, "0")}`
         await supabase.from("transactions").update({ voucher_no: voucherNo }).eq("id", record.id)
@@ -205,7 +221,7 @@ export default function Home() {
       method,
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
       memo: newMemo, note: newNote,
-      year, is_closing: false, is_confirmed: false, voucher_no: voucherNo,
+      year, is_closing: false, is_confirmed: false, is_void: false, voucher_no: voucherNo,
     })
     if (error) { alert("保存エラー: " + error.message); return }
     setShowForm(false)
@@ -222,6 +238,13 @@ export default function Home() {
     fetchData()
   }
 
+  async function voidRow(id: string, current: boolean) {
+    const msg = current ? "無効を解除しますか？" : "この仕訳を無効にしますか？"
+    if (!confirm(msg)) return
+    await supabase.from("transactions").update({ is_void: !current }).eq("id", id)
+    fetchData()
+  }
+
   async function saveEdit() {
     if (!editing) return
     await supabase.from("transactions").update({
@@ -235,21 +258,16 @@ export default function Home() {
     fetchData()
   }
 
-  async function deleteRow(id: string) {
-    if (!confirm("削除しますか？")) return
-    await supabase.from("transactions").delete().eq("id", id)
-    fetchData()
-  }
-
   const kojyoAccounts = ["医療費", "寄附金", "社会保険料", "生命保険料", "地震保険料", "小規模企業共済"]
-  const total = rows.reduce((sum, r) => {
+  const activeRows = rows.filter(r => !r.is_void)
+  const total = activeRows.reduce((sum, r) => {
     if (r.account === "売上高") return sum
     if (kojyoAccounts.includes(r.account)) return sum
     return sum + r.amount
   }, 0)
-  const income = rows.reduce((sum, r) => r.account === "売上高" ? sum + r.amount : sum, 0)
-  const iryo = rows.reduce((sum, r) => r.account === "医療費" ? sum + r.amount : sum, 0)
-  const noVoucherCount = rows.filter(r => !r.voucher_no).length
+  const income = activeRows.reduce((sum, r) => r.account === "売上高" ? sum + r.amount : sum, 0)
+  const iryo = activeRows.reduce((sum, r) => r.account === "医療費" ? sum + r.amount : sum, 0)
+  const noVoucherCount = activeRows.filter(r => !r.voucher_no).length
 
   const modalOverlay: React.CSSProperties = {
     position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
@@ -340,7 +358,7 @@ export default function Home() {
         )}
         <div style={{ background: "#f8fafc", padding: "12px 20px", borderRadius: "8px" }}>
           <div style={{ fontSize: "12px", color: "#666" }}>件数</div>
-          <div style={{ fontSize: "18px", fontWeight: "bold" }}>{rows.length}件</div>
+          <div style={{ fontSize: "18px", fontWeight: "bold" }}>{activeRows.length}件</div>
         </div>
       </div>
 
@@ -360,34 +378,44 @@ export default function Home() {
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr key={r.id} style={{ borderBottom: "1px solid #e5e7eb", background: r.is_confirmed ? "#f0fdf4" : "white" }}>
+              <tr key={r.id} style={{
+                borderBottom: "1px solid #e5e7eb",
+                background: r.is_void ? "#f9fafb" : r.is_confirmed ? "#f0fdf4" : "white",
+                opacity: r.is_void ? 0.5 : 1,
+              }}>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center" }}>
-                  <input type="checkbox" checked={r.is_confirmed} onChange={() => toggleConfirmed(r.id, r.is_confirmed)}
-                    style={{ width: "16px", height: "16px", cursor: "pointer" }} />
+                  {!r.is_void && (
+                    <input type="checkbox" checked={r.is_confirmed} onChange={() => toggleConfirmed(r.id, r.is_confirmed)}
+                      style={{ width: "16px", height: "16px", cursor: "pointer" }} />
+                  )}
                 </td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px", whiteSpace: "nowrap", color: r.voucher_no ? "#6b7280" : "#f59e0b", fontWeight: r.voucher_no ? "normal" : "bold" }}>
-                  {r.voucher_no || "未採番"}
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px", whiteSpace: "nowrap", color: r.is_void ? "#9ca3af" : r.voucher_no ? "#6b7280" : "#f59e0b", fontWeight: r.voucher_no ? "normal" : "bold", textDecoration: r.is_void ? "line-through" : "none" }}>
+                  {r.voucher_no || "未採番"}{r.is_void && " 【無効】"}
                 </td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", whiteSpace: "nowrap" }}>{r.date}</td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb" }}>{r.account}</td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "right" }}>{r.amount.toLocaleString()}</td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px" }}>
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.date}</td>
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.account}</td>
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "right", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.amount.toLocaleString()}</td>
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px", color: r.is_void ? "#9ca3af" : "inherit" }}>
                   <div>{methodToKind(r.method)}</div>
-                  {r.payment_account && <div style={{ color: "#6b7280" }}>{r.payment_account}</div>}
+                  {r.payment_account && <div style={{ color: "#9ca3af" }}>{r.payment_account}</div>}
                 </td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", maxWidth: "160px" }}>
-                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.memo}</div>
-                  {r.note && <div style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", maxWidth: "160px", color: r.is_void ? "#9ca3af" : "inherit" }}>
+                  <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none" }}>{r.memo}</div>
+                  {r.note && <div style={{ fontSize: "11px", color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center", whiteSpace: "nowrap" }}>
-                  {r.voucher_no && (
+                  {r.voucher_no && !r.is_void && (
                     <button onClick={() => copyVoucher(r)}
                       style={{ marginRight: "4px", padding: "2px 8px", background: "#0891b2", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>🖨</button>
                   )}
-                  <button onClick={() => setEditing(r)}
-                    style={{ marginRight: "4px", padding: "2px 8px", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>編集</button>
-                  <button onClick={() => deleteRow(r.id)}
-                    style={{ padding: "2px 8px", background: "#dc2626", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>削除</button>
+                  {!r.is_void && (
+                    <button onClick={() => setEditing(r)}
+                      style={{ marginRight: "4px", padding: "2px 8px", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>編集</button>
+                  )}
+                  <button onClick={() => voidRow(r.id, r.is_void)}
+                    style={{ padding: "2px 8px", background: r.is_void ? "#6b7280" : "#dc2626", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>
+                    {r.is_void ? "解除" : "無効"}
+                  </button>
                 </td>
               </tr>
             ))}
