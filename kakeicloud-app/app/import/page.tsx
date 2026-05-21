@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.2 | 2026/05/20
+ * kakeicloud v1.9.5 | 2026/05/21
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -156,7 +156,7 @@ export default function ImportPage() {
     setLoading(true)
     setErrorMsg(null)
     try {
-      if (tab === 'receipt') { await handleReceipt(file); return }
+      if (tab === 'レシート') { await handleReceipt(file); return }
       let parsed: ImportRow[] = []
       if (tab === 'CSV' || tab === 'カードCSV') parsed = applyRules(parseCardCSV(await file.text()))
       else if (tab === 'yayoi' || tab === '弥生CSV') parsed = applyRules(parseYayoiCSV(await file.text()))
