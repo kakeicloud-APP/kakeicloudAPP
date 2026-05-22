@@ -1,4 +1,4 @@
-// commit: fix(claude): text_cardをSonnet化・楽天OCRノイズ対応 v2.0.4
+// v2.0.4 app/api/claude/route.ts text_cardをSonnet化・楽天OCRノイズ対応
 /**
  * kakeicloud v2.0.4 | 2026/05/22
  * kakeicloud-app/app/api/claude/route.ts
