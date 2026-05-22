@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.9 | 2026/05/21
+ * kakeicloud v2.0.1 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -27,6 +27,7 @@ type Transaction = {
   is_closing: boolean
   is_confirmed: boolean
   is_void: boolean
+  is_printed: boolean
   voucher_no?: string
 }
 
@@ -87,6 +88,14 @@ function methodToKind(method: string): string {
   return "カード"
 }
 
+function sortByVoucherNo(rows: Transaction[]): Transaction[] {
+  return [...rows].sort((a, b) => {
+    if (!a.voucher_no) return 1
+    if (!b.voucher_no) return -1
+    return a.voucher_no.localeCompare(b.voucher_no)
+  })
+}
+
 export default function Home() {
   const [person, setPerson] = useState<"hiroshi" | "wife">("hiroshi")
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
@@ -100,6 +109,8 @@ export default function Home() {
   const [showPrint, setShowPrint] = useState(false)
   const [printPage, setPrintPage] = useState(0)
   const [filterKind, setFilterKind] = useState("all")
+  const [printFilter, setPrintFilter] = useState<"unprinted" | "printed" | "all">("unprinted")
+  const [markingPrinted, setMarkingPrinted] = useState(false)
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [newKind, setNewKind] = useState("keiji")
@@ -162,7 +173,13 @@ export default function Home() {
     return rows
   })()
 
-  const printableRows = activeRows.filter(r => r.voucher_no)
+  const allPrintableRows = sortByVoucherNo(activeRows.filter(r => r.voucher_no))
+  const printableRows = (() => {
+    if (printFilter === "unprinted") return allPrintableRows.filter(r => !r.is_printed)
+    if (printFilter === "printed") return allPrintableRows.filter(r => r.is_printed)
+    return allPrintableRows
+  })()
+
   const ITEMS_PER_PAGE = 6
   const totalPrintPages = Math.ceil(printableRows.length / ITEMS_PER_PAGE)
 
@@ -173,6 +190,29 @@ export default function Home() {
       result.push(printableRows[idx] || null)
     }
     return result
+  }
+
+  async function markPageAsPrinted() {
+    const pageRows = getPageRows(printPage).filter(Boolean) as Transaction[]
+    if (pageRows.length === 0) return
+    setMarkingPrinted(true)
+    for (const r of pageRows) {
+      await supabase.from("transactions").update({ is_printed: true }).eq("id", r.id)
+    }
+    setMarkingPrinted(false)
+    alert(`${pageRows.length}件を印刷済みにしました`)
+    fetchData()
+  }
+
+  async function markAllPrinted() {
+    if (!confirm(`${printableRows.length}件すべてを印刷済みにしますか？`)) return
+    setMarkingPrinted(true)
+    for (const r of printableRows) {
+      await supabase.from("transactions").update({ is_printed: true }).eq("id", r.id)
+    }
+    setMarkingPrinted(false)
+    alert("全件印刷済みにしました")
+    fetchData()
   }
 
   async function generateVoucherNo(p: string, year: number): Promise<string> {
@@ -245,7 +285,7 @@ export default function Home() {
       method,
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
       memo: newMemo, note: newNote, order_no: newOrderNo || null,
-      year, is_closing: false, is_confirmed: false, is_void: false, voucher_no: voucherNo,
+      year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, voucher_no: voucherNo,
     })
     if (error) { alert("保存エラー: " + error.message); return }
     setShowForm(false)
@@ -293,6 +333,7 @@ export default function Home() {
   const iryo = activeRows.reduce((sum, r) => r.account === "医療費" ? sum + r.amount : sum, 0)
   const kaigohiyo = activeRows.reduce((sum, r) => r.account === "開業費償却" ? sum + r.amount : sum, 0)
   const noVoucherCount = activeRows.filter(r => !r.voucher_no).length
+  const unprintedCount = allPrintableRows.filter(r => !r.is_printed).length
 
   const modalOverlay: React.CSSProperties = {
     position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
@@ -315,7 +356,7 @@ export default function Home() {
     gridTemplateColumns: "1fr 1fr 1fr",
     gridTemplateRows: "1fr 1fr",
     gap: "6px", padding: "8px",
-    height: "calc(100vh - 100px)", boxSizing: "border-box",
+    height: "calc(100vh - 140px)", boxSizing: "border-box",
   }
 
   const currentKindAccounts = ACCOUNTS[newKind as keyof typeof ACCOUNTS] || ACCOUNTS.keiji
@@ -337,10 +378,10 @@ export default function Home() {
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>設定</a>
         <a href="/import"
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>取込</a>
-        {printableRows.length > 0 && (
-          <button onClick={() => { setPrintPage(0); setShowPrint(true) }}
-            style={{ padding: "8px 14px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
-            {selectedYear} 証憑票（{totalPrintPages}P）
+        {allPrintableRows.length > 0 && (
+          <button onClick={() => { setPrintPage(0); setPrintFilter("unprinted"); setShowPrint(true) }}
+            style={{ padding: "8px 14px", background: unprintedCount > 0 ? "#7c3aed" : "#9ca3af", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
+            {selectedYear} 証憑票{unprintedCount > 0 ? `（未印刷${unprintedCount}件）` : "（全印刷済）"}
           </button>
         )}
         <button onClick={() => setShowForm(true)}
@@ -356,7 +397,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* 科目フィルタ */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
         {FILTER_KINDS.map(f => (
           <button key={f.key} onClick={() => setFilterKind(f.key)}
@@ -445,7 +485,8 @@ export default function Home() {
                   )}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px", whiteSpace: "nowrap", color: r.is_void ? "#9ca3af" : r.voucher_no ? "#6b7280" : "#f59e0b", fontWeight: r.voucher_no ? "normal" : "bold", textDecoration: r.is_void ? "line-through" : "none" }}>
-                  {r.voucher_no || "未採番"}{r.is_void && " 【無効】"}
+                  <div>{r.voucher_no || "未採番"}{r.is_void && " 【無効】"}</div>
+                  {r.is_printed && !r.is_void && <div style={{ fontSize: "10px", color: "#16a34a" }}>🖨済</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.date}</td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.account}</td>
@@ -705,46 +746,84 @@ export default function Home() {
             }
             @media screen { .print-only { display: none; } }
           `}</style>
-          <div className="no-print" style={{ padding: "10px 16px", display: "flex", gap: "8px", alignItems: "center", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
+
+          {/* ヘッダー */}
+          <div className="no-print" style={{ padding: "8px 16px", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: "8px 16px", background: printPage === 0 ? "#e5e7eb" : "#2563eb", color: printPage === 0 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === 0 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>←</button>
-            <span style={{ fontWeight: "bold", fontSize: "15px" }}>{selectedYear}年　{printPage + 1} / {totalPrintPages}P</span>
-            <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage === totalPrintPages - 1}
-              style={{ padding: "8px 16px", background: printPage === totalPrintPages - 1 ? "#e5e7eb" : "#2563eb", color: printPage === totalPrintPages - 1 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === totalPrintPages - 1 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>→</button>
+            <span style={{ fontWeight: "bold", fontSize: "14px" }}>
+              {selectedYear}年　{printPage + 1} / {totalPrintPages || 1}P
+            </span>
+            <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage >= totalPrintPages - 1}
+              style={{ padding: "8px 16px", background: printPage >= totalPrintPages - 1 ? "#e5e7eb" : "#2563eb", color: printPage >= totalPrintPages - 1 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage >= totalPrintPages - 1 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>→</button>
+
+            {/* 未印刷/印刷済み切り替え */}
+            <div style={{ display: "flex", gap: "4px", marginLeft: "8px" }}>
+              {[
+                { key: "unprinted", label: `未印刷（${allPrintableRows.filter(r => !r.is_printed).length}）` },
+                { key: "printed", label: `印刷済（${allPrintableRows.filter(r => r.is_printed).length}）` },
+                { key: "all", label: "全件" },
+              ].map(f => (
+                <button key={f.key} onClick={() => { setPrintFilter(f.key as any); setPrintPage(0) }}
+                  style={{ padding: "6px 10px", background: printFilter === f.key ? "#1e293b" : "#e5e7eb", color: printFilter === f.key ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: printFilter === f.key ? "bold" : "normal" }}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={markPageAsPrinted} disabled={markingPrinted || printFilter === "printed"}
+              style={{ padding: "6px 12px", background: markingPrinted ? "#9ca3af" : "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}>
+              {markingPrinted ? "処理中..." : "🖨 このページを印刷済みに"}
+            </button>
+            <button onClick={markAllPrinted} disabled={markingPrinted || printableRows.length === 0}
+              style={{ padding: "6px 12px", background: markingPrinted ? "#9ca3af" : "#0891b2", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>
+              全件印刷済みに
+            </button>
             <button onClick={() => window.print()}
-              style={{ marginLeft: "auto", padding: "8px 20px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>
-              {selectedYear}年 全{totalPrintPages}P印刷
+              style={{ padding: "8px 16px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+              印刷
             </button>
             <button onClick={() => setShowPrint(false)}
-              style={{ padding: "8px 16px", background: "#e5e7eb", border: "none", borderRadius: "6px", cursor: "pointer" }}>閉じる</button>
+              style={{ padding: "8px 14px", background: "#e5e7eb", border: "none", borderRadius: "6px", cursor: "pointer" }}>閉じる</button>
           </div>
-          <div className="no-print" style={{ ...gridStyle }}>
-            {getPageRows(printPage).map((r, i) => (
-              <div key={i} style={{ border: "2px solid #000", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                {r ? (
-                  <>
-                    <div style={{ padding: "4px 6px", borderBottom: "1px solid #999", background: "#f9f9f9" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontWeight: "bold" }}>
-                        <span>{r.voucher_no}</span><span>{r.date}</span>
-                      </div>
-                      <div style={{ fontSize: "9px" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
-                      {r.memo && <div style={{ fontSize: "8px", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.memo}</div>}
-                    </div>
-                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {r.method !== "現金" && (
-                        <div style={{ textAlign: "center", fontSize: "11px", color: "#444", lineHeight: 1.6 }}>
-                          <div style={{ fontWeight: "bold" }}>証憑無し</div>
-                          <div>{r.payment_account || methodToKind(r.method)}より</div>
-                        </div>
+
+          {printableRows.length === 0 ? (
+            <div className="no-print" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "calc(100vh - 60px)", color: "#9ca3af", fontSize: "16px" }}>
+              {printFilter === "unprinted" ? "未印刷の証憑票はありません" : "印刷済みの証憑票はありません"}
+            </div>
+          ) : (
+            <div className="no-print" style={{ ...gridStyle }}>
+              {getPageRows(printPage).map((r, i) => (
+                <div key={i} style={{ border: "2px solid #000", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
+                  {r ? (
+                    <>
+                      {r.is_printed && (
+                        <div style={{ position: "absolute", top: "2px", right: "4px", fontSize: "10px", color: "#16a34a", fontWeight: "bold" }}>🖨済</div>
                       )}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ddd", fontSize: "11px" }}>（空欄）</div>
-                )}
-              </div>
-            ))}
-          </div>
+                      <div style={{ padding: "4px 6px", borderBottom: "1px solid #999", background: "#f9f9f9" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontWeight: "bold" }}>
+                          <span>{r.voucher_no}</span><span>{r.date}</span>
+                        </div>
+                        <div style={{ fontSize: "9px" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
+                        {r.memo && <div style={{ fontSize: "8px", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.memo}</div>}
+                      </div>
+                      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {r.method !== "現金" && (
+                          <div style={{ textAlign: "center", fontSize: "11px", color: "#444", lineHeight: 1.6 }}>
+                            <div style={{ fontWeight: "bold" }}>証憑無し</div>
+                            <div>{r.payment_account || methodToKind(r.method)}より</div>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ddd", fontSize: "11px" }}>（空欄）</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="print-only">
             {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
               <div key={pageIdx} className="print-page">
