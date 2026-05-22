@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.5 | 2026/05/21
+ * kakeicloud v1.9.8 | 2026/05/21
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -44,9 +44,21 @@ type ReceiptData = {
   invoice_no: string
 }
 
+type AmazonData = {
+  date: string
+  amount: number
+  tax_amount: number
+  tax_rate: number
+  order_no: string
+  invoice_no: string
+  memo: string
+  note: string
+  account: string
+}
+
 type ReceiptKind = 'keiji' | 'iryo' | 'furusato' | 'kaji'
 
-const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート']
+const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート', 'Amazon']
 
 const KEIJI_ACCOUNTS = [
   '消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃',
@@ -88,6 +100,9 @@ export default function ImportPage() {
   const [receiptKind, setReceiptKind] = useState<ReceiptKind>('keiji')
   const [receiptAccount, setReceiptAccount] = useState(KEIJI_ACCOUNTS[0])
   const [savingReceipt, setSavingReceipt] = useState(false)
+  const [amazonData, setAmazonData] = useState<AmazonData | null>(null)
+  const [amazonAccount, setAmazonAccount] = useState(KEIJI_ACCOUNTS[0])
+  const [savingAmazon, setSavingAmazon] = useState(false)
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -157,6 +172,7 @@ export default function ImportPage() {
     setErrorMsg(null)
     try {
       if (tab === 'レシート') { await handleReceipt(file); return }
+      if (tab === 'Amazon') { await handleAmazon(file); return }
       let parsed: ImportRow[] = []
       if (tab === 'CSV' || tab === 'カードCSV') parsed = applyRules(parseCardCSV(await file.text()))
       else if (tab === 'yayoi' || tab === '弥生CSV') parsed = applyRules(parseYayoiCSV(await file.text()))
@@ -233,6 +249,34 @@ export default function ImportPage() {
     setReceiptAccount(json.data.account || KEIJI_ACCOUNTS[0])
   }
 
+  async function handleAmazon(file: File) {
+    const base64 = await fileToBase64(file)
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 25000)
+    let res: Response
+    try {
+      res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'amazon', imageBase64: base64, mediaType: file.type || 'image/jpeg' }),
+        signal: controller.signal,
+      })
+    } catch (e: any) {
+      clearTimeout(timer)
+      if (e.name === 'AbortError') throw new Error('timeout 25s')
+      throw new Error(`network error: ${e.message}`)
+    }
+    clearTimeout(timer)
+    const text = await res.text()
+    if (!res.ok) throw new Error(`API error ${res.status}: ${text}`)
+    let json: any
+    try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
+    if (json.error) throw new Error(json.error)
+    if (!json.data) throw new Error('no data')
+    setAmazonData(json.data)
+    setAmazonAccount(json.data.account || KEIJI_ACCOUNTS[0])
+  }
+
   function fileToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -261,7 +305,7 @@ export default function ImportPage() {
         invoice_no: receiptData.invoice_no || null,
         method: '未払金',
         memo: receiptData.memo || receiptData.store_name,
-        year, is_closing: false, is_confirmed: false,
+        year, is_closing: false, is_confirmed: false, is_void: false,
       })
       if (error) throw new Error(error.message)
       setReceiptData(null)
@@ -270,6 +314,34 @@ export default function ImportPage() {
       alert(`save error: ${e.message}`)
     } finally {
       setSavingReceipt(false)
+    }
+  }
+
+  async function saveAmazon() {
+    if (!amazonData) return
+    setSavingAmazon(true)
+    try {
+      const year = parseInt(amazonData.date.split('-')[0])
+      const { error } = await supabase.from('transactions').insert({
+        person, date: amazonData.date, account: amazonAccount,
+        amount: amazonData.amount,
+        tax_type: '課税仕入',
+        tax_rate: amazonData.tax_rate || 10,
+        tax_amount: amazonData.tax_amount || 0,
+        invoice_no: amazonData.invoice_no || null,
+        method: '未払金',
+        memo: amazonData.memo,
+        note: amazonData.note || null,
+        order_no: amazonData.order_no || null,
+        year, is_closing: false, is_confirmed: false, is_void: false,
+      })
+      if (error) throw new Error(error.message)
+      setAmazonData(null)
+      alert('登録しました')
+    } catch (e: any) {
+      alert(`save error: ${e.message}`)
+    } finally {
+      setSavingAmazon(false)
     }
   }
 
@@ -326,6 +398,7 @@ export default function ImportPage() {
   }
 
   const isReceiptTab = tab === 'レシート'
+  const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
 
   return (
@@ -352,7 +425,7 @@ export default function ImportPage() {
 
       <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => { setTab(t); setRows([]); setErrorMsg(null); setReceiptData(null) }}
+          <button key={t} onClick={() => { setTab(t); setRows([]); setErrorMsg(null); setReceiptData(null); setAmazonData(null) }}
             style={{ padding: '8px 16px', background: tab === t ? '#7c3aed' : '#e5e7eb', color: tab === t ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '13px' }}>{t}</button>
         ))}
       </div>
@@ -367,7 +440,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {!isReceiptTab && (
+      {!isReceiptTab && !isAmazonTab && (
         <div style={{ marginBottom: '16px' }}>
           <input ref={fileRef} type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
@@ -388,6 +461,21 @@ export default function ImportPage() {
           <button onClick={() => fileRef.current?.click()} disabled={loading}
             style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#0891b2', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
             {loading ? 'AI読取中...' : '🖼 写真を選択'}
+          </button>
+        </div>
+      )}
+
+      {isAmazonTab && !amazonData && (
+        <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
+          <button onClick={() => cameraRef.current?.click()} disabled={loading}
+            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+            {loading ? 'AI読取中...' : '📷 カメラで撮影'}
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
+          <button onClick={() => fileRef.current?.click()} disabled={loading}
+            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+            {loading ? 'AI読取中...' : '🖼 スクショを選択'}
           </button>
         </div>
       )}
@@ -445,6 +533,65 @@ export default function ImportPage() {
               {savingReceipt ? '登録中...' : '💾 登録'}
             </button>
             <button onClick={() => setReceiptData(null)}
+              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+              やり直し
+            </button>
+          </div>
+        </div>
+      )}
+
+      {amazonData && (
+        <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>🛒 Amazon AI読取完了 - 内容確認</div>
+          <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: '#6b7280' }}>日付</span><span>{amazonData.date}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: '#6b7280' }}>金額</span>
+              <span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{amazonData.amount.toLocaleString()}</span>
+            </div>
+            {amazonData.tax_amount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ color: '#6b7280' }}>消費税</span>
+                <span>¥{amazonData.tax_amount.toLocaleString()}（{amazonData.tax_rate}%）</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ color: '#6b7280' }}>摘要</span><span>{amazonData.memo}</span>
+            </div>
+            {amazonData.note && (
+              <div style={{ marginBottom: '4px' }}>
+                <span style={{ color: '#6b7280', fontSize: '11px' }}>備考</span>
+                <div style={{ fontSize: '11px', color: '#374151', marginTop: '2px' }}>{amazonData.note}</div>
+              </div>
+            )}
+            {amazonData.order_no && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                <span style={{ color: '#6b7280' }}>注文番号</span>
+                <span style={{ fontSize: '11px' }}>{amazonData.order_no}</span>
+              </div>
+            )}
+            {amazonData.invoice_no && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#6b7280' }}>登録番号</span>
+                <span style={{ fontSize: '11px' }}>{amazonData.invoice_no}</span>
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: '12px' }}>
+            <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
+            <select value={amazonAccount} onChange={e => setAmazonAccount(e.target.value)}
+              style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
+              {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={saveAmazon} disabled={savingAmazon}
+              style={{ flex: 1, padding: '14px', background: savingAmazon ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: savingAmazon ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+              {savingAmazon ? '登録中...' : '💾 登録'}
+            </button>
+            <button onClick={() => setAmazonData(null)}
               style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               やり直し
             </button>
