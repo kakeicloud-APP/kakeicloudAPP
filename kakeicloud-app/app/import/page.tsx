@@ -1,5 +1,6 @@
+// v2.0.5 app/import/page.tsx PDFタブにテキスト読み取り追加・card_imports保存
 /**
- * kakeicloud v2.0.3 | 2026/05/21
+ * kakeicloud v2.0.5 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -97,6 +98,7 @@ export default function ImportPage() {
   const [savingAmazon, setSavingAmazon] = useState(false)
   const [textInput, setTextInput] = useState('')
   const [showTextArea, setShowTextArea] = useState(false)
+  const [currentImportId, setCurrentImportId] = useState<string | null>(null)
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -110,6 +112,7 @@ export default function ImportPage() {
     setAmazonData(null)
     setRows([])
     setErrorMsg(null)
+    setCurrentImportId(null)
   }, [tab])
 
   async function fetchMasters() {
@@ -159,6 +162,21 @@ export default function ImportPage() {
         description: cols[1] || cols[2] || '', amount, status: 'pending' as const,
       }
     }).filter(Boolean) as ImportRow[]
+  }
+
+  async function saveToCardImports(rawText: string, cardType: string, billingMonth: string): Promise<string | null> {
+    try {
+      const { data, error } = await supabase.from('card_imports').insert({
+        card_type: cardType,
+        billing_month: billingMonth,
+        raw_text: rawText,
+      }).select('id').single()
+      if (error) { console.error('card_imports save error:', error); return null }
+      return data?.id || null
+    } catch (e) {
+      console.error('card_imports error:', e)
+      return null
+    }
   }
 
   async function callApi(body: object): Promise<any> {
@@ -229,7 +247,7 @@ export default function ImportPage() {
         setAmazonData(json.data)
         setAmazonAccount(json.data.account || KEIJI_ACCOUNTS[0])
         setShowTextArea(false)
-      } else if (tab === 'カードCSV' || tab === '弥生CSV') {
+      } else if (tab === 'カードCSV' || tab === '弥生CSV' || tab === 'PDF') {
         const json = await callApi({ type: 'text_card', text: textInput })
         if (!Array.isArray(json.data)) throw new Error('data error')
         const parsed: ImportRow[] = json.data.map((d: any, i: number) => ({
@@ -238,7 +256,15 @@ export default function ImportPage() {
         }))
         setRows(applyRules(parsed))
         setShowTextArea(false)
-        if (parsed.length === 0) alert('data not found')
+        if (parsed.length === 0) { alert('data not found'); return }
+
+        // card_importsに保存
+        const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
+        const suffix = tab === 'PDF' ? 'PDF' : 'CSV'
+        const cardType = `${selectedAccount?.name || '不明'} (${suffix})`
+        const billingMonth = parsed[0]?.date.slice(0, 7) || new Date().toISOString().slice(0, 7)
+        const importId = await saveToCardImports(textInput, cardType, billingMonth)
+        if (importId) setCurrentImportId(importId)
       }
     } catch (error: any) {
       const msg = error.message || 'error'
@@ -360,6 +386,7 @@ export default function ImportPage() {
       }
       alert(`${rows.length}件を保存しました`)
       setRows([])
+      setCurrentImportId(null)
     } catch (error: any) {
       alert(`save error: ${error.message}`)
     } finally {
@@ -399,7 +426,7 @@ export default function ImportPage() {
   const isReceiptTab = tab === 'レシート'
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
-  const showTextReadButton = tab === 'レシート' || tab === 'Amazon' || tab === 'カードCSV' || tab === '弥生CSV'
+  const showTextReadButton = tab === 'レシート' || tab === 'Amazon' || tab === 'カードCSV' || tab === '弥生CSV' || tab === 'PDF'
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
@@ -490,7 +517,7 @@ export default function ImportPage() {
           {showTextArea && (
             <div style={{ marginTop: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', background: '#fafafa' }}>
               <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>
-                写真から手動でコピーしたテキストを貼り付けてください
+                {tab === 'PDF' ? 'PDFから手動でコピーしたテキストを貼り付けてください' : '写真から手動でコピーしたテキストを貼り付けてください'}
               </label>
               <textarea
                 value={textInput}
@@ -514,6 +541,12 @@ export default function ImportPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {currentImportId && (
+        <div style={{ background: '#eff6ff', border: '1px solid #3b82f6', borderRadius: '8px', padding: '8px 12px', marginBottom: '12px', fontSize: '12px', color: '#1d4ed8' }}>
+          📂 明細保存済 ID: {currentImportId.slice(0, 8)}...
         </div>
       )}
 
@@ -684,3 +717,5 @@ export default function ImportPage() {
     </div>
   )
 }
+
+
