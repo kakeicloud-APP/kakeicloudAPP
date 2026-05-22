@@ -1,5 +1,6 @@
+// commit: fix(claude): text_cardをSonnet化・楽天OCRノイズ対応 v2.0.4
 /**
- * kakeicloud v2.0.3 | 2026/05/21
+ * kakeicloud v2.0.4 | 2026/05/22
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -197,11 +198,11 @@ ${text}
 
     } else if (type === 'text_card') {
       const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         messages: [{
           role: 'user',
-          content: `以下はクレジットカードまたは銀行明細から手動で抽出したテキストです。
+          content: `以下は楽天カードなどクレジットカード明細のOCRテキストです。
 取引明細を全件抽出してJSON配列のみを返してください。
 説明文・マークダウン記号は不要です。
 
@@ -216,9 +217,13 @@ ${text}
 
 ルール：
 - dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）
+- amountは正の整数（円）。読み取れない場合は0にする
 - descriptionは利用先名をそのまま記載
-- 返金・取消はamountをマイナスにせず除外する`,
+- AKAZON / AVAZON / AMAZON等の表記揺れはすべて「AMAZON CO.JP」に統一する
+- 日付（YYYY/MM/DD形式）で始まる行のみを取引明細として扱う
+- 「ご利用明細」「支払方法」「手数料」「ポイント」「リボ」等のヘッダー・フッター行は除外する
+- 返金・取消はamountをマイナスにせず除外する
+- 金額が次の行にある場合も正しく紐付けること`,
         }],
       })
       const t = result.content[0].text
