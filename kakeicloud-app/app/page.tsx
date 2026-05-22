@@ -1,6 +1,6 @@
-// v2.0.6 app/page.tsx 編集モーダル科目をselectに変更・科目追加
+// v2.0.8 app/page.tsx ヘッダーに取込承認ボタン追加
 /**
- * kakeicloud v2.0.6 | 2026/05/22
+ * kakeicloud v2.0.8 | 2026/05/22
  * kakeicloud-app/app/page.tsx
  */
 
@@ -141,6 +141,7 @@ export default function Home() {
   const [filterKind, setFilterKind] = useState("all")
   const [printFilter, setPrintFilter] = useState<"unprinted" | "printed" | "all">("unprinted")
   const [markingPrinted, setMarkingPrinted] = useState(false)
+  const [stagingCount, setStagingCount] = useState(0)
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [newKind, setNewKind] = useState("keiji")
@@ -156,7 +157,7 @@ export default function Home() {
   const [newOrderNo, setNewOrderNo] = useState("")
   const [newHasReceipt, setNewHasReceipt] = useState(true)
 
-  useEffect(() => { fetchData(); fetchPaymentAccounts() }, [person, selectedYear])
+  useEffect(() => { fetchData(); fetchPaymentAccounts(); fetchStagingCount() }, [person, selectedYear])
   useEffect(() => {
     const keys = Object.keys(ACCOUNTS) as (keyof typeof ACCOUNTS)[]
     const key = keys.find(k => k === newKind) || "keiji"
@@ -183,6 +184,14 @@ export default function Home() {
       .from("payment_accounts").select("*")
       .eq("is_active", true).order("kind").order("name")
     setPaymentAccounts(data || [])
+  }
+
+  async function fetchStagingCount() {
+    const { count } = await supabase
+      .from("import_staging")
+      .select("*", { count: "exact", head: true })
+      .eq("person", person)
+    setStagingCount(count || 0)
   }
 
   function filteredPaymentAccounts(kind: string) {
@@ -454,6 +463,10 @@ export default function Home() {
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>設定</a>
         <a href="/import"
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>取込</a>
+        <a href="/staging"
+          style={{ padding: "8px 14px", background: stagingCount > 0 ? "#f97316" : "#f3f4f6", border: `1px solid ${stagingCount > 0 ? "#f97316" : "#e5e7eb"}`, borderRadius: "6px", textDecoration: "none", color: stagingCount > 0 ? "white" : "#374151", fontSize: "14px", fontWeight: stagingCount > 0 ? "bold" : "normal" }}>
+          📥 取込承認{stagingCount > 0 ? `（${stagingCount}件）` : ""}
+        </a>
         {allPrintableRows.length > 0 && (
           <button onClick={() => { setPrintPage(0); setPrintFilter("unprinted"); setShowPrint(true) }}
             style={{ padding: "8px 14px", background: unprintedCount > 0 ? "#7c3aed" : "#9ca3af", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
@@ -767,10 +780,7 @@ export default function Home() {
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
                   {Object.keys(ACCOUNTS).map(k => (
                     <button key={k}
-                      onClick={() => {
-                        setEditKind(k)
-                        setEditing({ ...editing, account: ACCOUNTS[k as keyof typeof ACCOUNTS][0] })
-                      }}
+                      onClick={() => { setEditKind(k); setEditing({ ...editing, account: ACCOUNTS[k as keyof typeof ACCOUNTS][0] }) }}
                       style={{ padding: "8px 12px", background: editKind === k ? "#7c3aed" : "#e5e7eb", color: editKind === k ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
                       {ACCOUNT_LABELS[k]}
                     </button>
