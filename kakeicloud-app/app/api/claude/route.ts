@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.8.3 | 2026/05/20
+ * kakeicloud v1.9.8 | 2026/05/21
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -62,6 +62,56 @@ export async function POST(req: NextRequest) {
 - dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
 - amountは正の整数（円）
 - descriptionは利用先名をそのまま記載`,
+              },
+            ],
+          },
+        ],
+      })
+
+      const text = result.content[0].text
+      const clean = text.replace(/```json\n?|\n?```/g, '').trim()
+      const data = JSON.parse(clean)
+      return NextResponse.json({ data })
+
+    } else if (type === 'amazon') {
+      const result = await callClaude({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: mediaType || 'image/jpeg',
+                  data: imageBase64,
+                },
+              },
+              {
+                type: 'text',
+                text: `この画像はAmazonの注文情報または請求書です。
+以下の情報を抽出してJSONオブジェクトのみを返してください。
+説明文・マークダウン記号は不要です。
+
+形式：
+{
+  "date": "YYYY-MM-DD",
+  "amount": 税込合計金額（整数）,
+  "tax_amount": 消費税額（整数）,
+  "tax_rate": 税率（8または10）,
+  "order_no": "注文番号（例：503-XXXXXXX-XXXXXXX、なければ空文字）",
+  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）",
+  "memo": "商品名を簡潔に（複数の場合は代表品名＋件数、例：iPhoneストラップ×2）",
+  "note": "商品名の詳細説明（フルの商品名・色・型番など）",
+  "account": "推定科目（消耗品費/通信費/雑費など）"
+}
+
+ルール：
+- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
+- amountは正の整数（円）
+- 情報が読み取れない項目は空文字または0にする`,
               },
             ],
           },
