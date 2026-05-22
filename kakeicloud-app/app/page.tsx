@@ -1,6 +1,6 @@
-// v2.0.8 app/page.tsx ヘッダーに取込承認ボタン追加
+// v2.1.1 app/page.tsx sub_account追加（開業費償却の下位科目）
 /**
- * kakeicloud v2.0.8 | 2026/05/22
+ * kakeicloud v2.1.1 | 2026/05/22
  * kakeicloud-app/app/page.tsx
  */
 
@@ -14,6 +14,7 @@ type Transaction = {
   person: string
   date: string
   account: string
+  sub_account?: string
   amount: number
   tax_type: string
   tax_rate?: number
@@ -52,6 +53,8 @@ const ACCOUNTS = {
   kojyo: ["医療費", "寄附金", "社会保険料", "生命保険料", "地震保険料", "小規模企業共済"],
   sonota: ["普通預金", "現金", "未払金", "前払費用", "棚卸資産", "事業主貸", "事業主借", "雑収入"],
 }
+
+const SUB_ACCOUNTS = ACCOUNTS.keiji.filter(a => a !== "開業費償却")
 
 const ACCOUNT_LABELS: Record<string, string> = {
   keiji: "経費", uriage: "売上", kojyo: "控除", sonota: "その他"
@@ -146,6 +149,7 @@ export default function Home() {
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [newKind, setNewKind] = useState("keiji")
   const [newAccount, setNewAccount] = useState("消耗品費")
+  const [newSubAccount, setNewSubAccount] = useState("")
   const [newAmount, setNewAmount] = useState("")
   const [newTaxRate, setNewTaxRate] = useState(10)
   const [newTaxAmount, setNewTaxAmount] = useState(0)
@@ -162,6 +166,7 @@ export default function Home() {
     const keys = Object.keys(ACCOUNTS) as (keyof typeof ACCOUNTS)[]
     const key = keys.find(k => k === newKind) || "keiji"
     setNewAccount(ACCOUNTS[key][0])
+    setNewSubAccount("")
   }, [newKind])
   useEffect(() => {
     const filtered = filteredPaymentAccounts(newPaymentKind)
@@ -319,6 +324,7 @@ export default function Home() {
     const method = KIND_TO_METHOD[newPaymentKind]
     const { error } = await supabase.from("transactions").insert({
       person, date: newDate, account: newAccount,
+      sub_account: newAccount === "開業費償却" ? newSubAccount || null : null,
       amount: parseInt(newAmount),
       tax_type: TAX_TYPE[newKind], tax_rate: newTaxRate, tax_amount: newTaxAmount,
       invoice_no: newInvoiceNo || null, method,
@@ -332,7 +338,7 @@ export default function Home() {
     setNewDate(new Date().toISOString().split("T")[0])
     setNewKind("keiji"); setNewAmount(""); setNewTaxRate(10); setNewTaxAmount(0)
     setNewInvoiceNo(""); setNewPaymentKind("card"); setNewPaymentAccount("")
-    setNewMemo(""); setNewNote(""); setNewOrderNo(""); setNewHasReceipt(true)
+    setNewMemo(""); setNewNote(""); setNewOrderNo(""); setNewHasReceipt(true); setNewSubAccount("")
     fetchData()
     setSavedVoucherNo(voucherNo)
   }
@@ -352,7 +358,9 @@ export default function Home() {
   async function saveEdit() {
     if (!editing) return
     await supabase.from("transactions").update({
-      date: editing.date, account: editing.account, amount: editing.amount,
+      date: editing.date, account: editing.account,
+      sub_account: editing.account === "開業費償却" ? editing.sub_account || null : null,
+      amount: editing.amount,
       tax_rate: editing.tax_rate, tax_amount: editing.tax_amount,
       invoice_no: editing.invoice_no || null,
       method: editing.method, payment_account: editing.payment_account || null,
@@ -410,7 +418,7 @@ export default function Home() {
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontWeight: "bold" }}>
             <span>{r.voucher_no}</span><span>{r.date}</span>
           </div>
-          <div style={{ fontSize: "9px" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
+          <div style={{ fontSize: "9px" }}>{r.account}{r.sub_account ? `／${r.sub_account}` : ""} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
           {r.memo && <div style={{ fontSize: "8px", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.memo}</div>}
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -432,7 +440,7 @@ export default function Home() {
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "7pt", fontWeight: "bold" }}>
             <span>{r.voucher_no}</span><span>{r.date}</span>
           </div>
-          <div style={{ fontSize: "7pt" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
+          <div style={{ fontSize: "7pt" }}>{r.account}{r.sub_account ? `／${r.sub_account}` : ""} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
           {r.memo && <div style={{ fontSize: "6pt", color: "#555" }}>{r.memo}</div>}
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -578,7 +586,10 @@ export default function Home() {
                   {r.is_printed && !r.is_void && <div style={{ fontSize: "10px", color: "#16a34a" }}>🖨済</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.date}</td>
-                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.account}</td>
+                <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>
+                  <div>{r.account}</div>
+                  {r.sub_account && <div style={{ fontSize: "11px", color: "#6b7280" }}>└{r.sub_account}</div>}
+                </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "right", textDecoration: r.is_void ? "line-through" : "none", color: r.is_void ? "#9ca3af" : "inherit" }}>{r.amount.toLocaleString()}</td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", fontSize: "11px", color: r.is_void ? "#9ca3af" : "inherit" }}>
                   <div>{methodToKind(r.method)}</div>
@@ -642,11 +653,21 @@ export default function Home() {
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>科目</label>
-                <select value={newAccount} onChange={e => setNewAccount(e.target.value)}
+                <select value={newAccount} onChange={e => { setNewAccount(e.target.value); setNewSubAccount("") }}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
                   {currentKindAccounts.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </div>
+              {newAccount === "開業費償却" && (
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>元の科目（開業費内訳）</label>
+                  <select value={newSubAccount} onChange={e => setNewSubAccount(e.target.value)}
+                    style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", background: "#fffbeb" }}>
+                    <option value="">選択してください</option>
+                    {SUB_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>金額（税込）</label>
                 <input type="number" value={newAmount}
@@ -780,18 +801,28 @@ export default function Home() {
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
                   {Object.keys(ACCOUNTS).map(k => (
                     <button key={k}
-                      onClick={() => { setEditKind(k); setEditing({ ...editing, account: ACCOUNTS[k as keyof typeof ACCOUNTS][0] }) }}
+                      onClick={() => { setEditKind(k); setEditing({ ...editing, account: ACCOUNTS[k as keyof typeof ACCOUNTS][0], sub_account: "" }) }}
                       style={{ padding: "8px 12px", background: editKind === k ? "#7c3aed" : "#e5e7eb", color: editKind === k ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
                       {ACCOUNT_LABELS[k]}
                     </button>
                   ))}
                 </div>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>科目</label>
-                <select value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value })}
+                <select value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value, sub_account: "" })}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
                   {editKindAccounts.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </div>
+              {editing.account === "開業費償却" && (
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>元の科目（開業費内訳）</label>
+                  <select value={editing.sub_account || ""} onChange={e => setEditing({ ...editing, sub_account: e.target.value })}
+                    style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", background: "#fffbeb" }}>
+                    <option value="">選択してください</option>
+                    {SUB_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>金額（税込）</label>
                 <input type="number" value={editing.amount} onChange={e => setEditing({ ...editing, amount: parseInt(e.target.value) || 0 })}
