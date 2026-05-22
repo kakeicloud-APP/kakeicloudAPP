@@ -1,6 +1,6 @@
-// v2.0.5 app/import/page.tsx PDFタブにテキスト読み取り追加・card_imports保存
+// v2.1.0 app/import/page.tsx KEIJI_ACCOUNTS科目追加
 /**
- * kakeicloud v2.0.5 | 2026/05/22
+ * kakeicloud v2.1.0 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -63,7 +63,9 @@ const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート', 'Amazon']
 
 const KEIJI_ACCOUNTS = [
   '消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃',
-  '水道光熱費', '修繕費', '広告宣伝費', '外注費', '減価償却費', '雑費', '開業費償却'
+  '水道光熱費', '修繕費', '広告宣伝費', '外注費', '減価償却費',
+  '車両費', '諸会費', '新聞図書費', '研修費', '支払手数料',
+  '租税公課', '保険料', '雑費', '開業費償却'
 ]
 
 const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {
@@ -167,15 +169,12 @@ export default function ImportPage() {
   async function saveToCardImports(rawText: string, cardType: string, billingMonth: string): Promise<string | null> {
     try {
       const { data, error } = await supabase.from('card_imports').insert({
-        card_type: cardType,
-        billing_month: billingMonth,
-        raw_text: rawText,
+        card_type: cardType, billing_month: billingMonth, raw_text: rawText,
       }).select('id').single()
       if (error) { console.error('card_imports save error:', error); return null }
       return data?.id || null
     } catch (e) {
-      console.error('card_imports error:', e)
-      return null
+      console.error('card_imports error:', e); return null
     }
   }
 
@@ -257,8 +256,6 @@ export default function ImportPage() {
         setRows(applyRules(parsed))
         setShowTextArea(false)
         if (parsed.length === 0) { alert('data not found'); return }
-
-        // card_importsに保存
         const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
         const suffix = tab === 'PDF' ? 'PDF' : 'CSV'
         const cardType = `${selectedAccount?.name || '不明'} (${suffix})`
@@ -507,7 +504,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* テキスト入力エリア */}
       {showTextReadButton && !receiptData && !amazonData && (
         <div style={{ marginBottom: '16px' }}>
           <button onClick={() => setShowTextArea(!showTextArea)}
@@ -717,5 +713,3 @@ export default function ImportPage() {
     </div>
   )
 }
-
-
