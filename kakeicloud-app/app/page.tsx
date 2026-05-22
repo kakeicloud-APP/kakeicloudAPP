@@ -1,5 +1,5 @@
 /**
- * kakeicloud v2.0.1 | 2026/05/21
+ * kakeicloud v2.0.2 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -28,6 +28,7 @@ type Transaction = {
   is_confirmed: boolean
   is_void: boolean
   is_printed: boolean
+  has_receipt: boolean
   voucher_no?: string
 }
 
@@ -96,6 +97,28 @@ function sortByVoucherNo(rows: Transaction[]): Transaction[] {
   })
 }
 
+function getVoucherDisplay(r: Transaction): string[] {
+  // 優先度1：科目判定
+  if (r.account === "医療費") return ["【別途領収書保管】", "医療費"]
+  if (r.account === "寄附金") return ["【寄附金受領証保管】"]
+  if (["社会保険料", "生命保険料", "地震保険料", "小規模企業共済"].includes(r.account)) return ["【別途証明書保管】"]
+  if (r.account === "減価償却費") return ["【固定資産台帳参照】"]
+  if (r.account === "売上高") return ["【請求書控え保管】"]
+
+  // 優先度2：金額判定
+  if (r.amount >= 300000) return ["【固定資産台帳参照】"]
+
+  // 優先度3：証憑有無
+  if (r.has_receipt) return [] // 空白（領収書が証憑）
+
+  // 優先度4：支払方法
+  if (r.order_no) return ["【証憑無し】", `注文番号：${r.order_no}`]
+  if (r.method === "未払金") return ["【証憑無し】", `${r.payment_account || "カード"}より`]
+  if (r.method === "普通預金") return ["【振込明細保管】", `${r.payment_account || "銀行"}より`]
+  if (r.method === "現金") return []
+  return ["【アプリ履歴参照】", `${r.payment_account || "電子マネー"}より`]
+}
+
 export default function Home() {
   const [person, setPerson] = useState<"hiroshi" | "wife">("hiroshi")
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
@@ -124,6 +147,7 @@ export default function Home() {
   const [newMemo, setNewMemo] = useState("")
   const [newNote, setNewNote] = useState("")
   const [newOrderNo, setNewOrderNo] = useState("")
+  const [newHasReceipt, setNewHasReceipt] = useState(true)
 
   useEffect(() => { fetchData(); fetchPaymentAccounts() }, [person, selectedYear])
   useEffect(() => {
@@ -281,10 +305,10 @@ export default function Home() {
       person, date: newDate, account: newAccount,
       amount: parseInt(newAmount),
       tax_type: TAX_TYPE[newKind], tax_rate: newTaxRate, tax_amount: newTaxAmount,
-      invoice_no: newInvoiceNo || null,
-      method,
+      invoice_no: newInvoiceNo || null, method,
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
       memo: newMemo, note: newNote, order_no: newOrderNo || null,
+      has_receipt: newHasReceipt,
       year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, voucher_no: voucherNo,
     })
     if (error) { alert("保存エラー: " + error.message); return }
@@ -292,7 +316,7 @@ export default function Home() {
     setNewDate(new Date().toISOString().split("T")[0])
     setNewKind("keiji"); setNewAmount(""); setNewTaxRate(10); setNewTaxAmount(0)
     setNewInvoiceNo(""); setNewPaymentKind("card"); setNewPaymentAccount("")
-    setNewMemo(""); setNewNote(""); setNewOrderNo("")
+    setNewMemo(""); setNewNote(""); setNewOrderNo(""); setNewHasReceipt(true)
     fetchData()
     setSavedVoucherNo(voucherNo)
   }
@@ -317,7 +341,7 @@ export default function Home() {
       invoice_no: editing.invoice_no || null,
       method: editing.method, payment_account: editing.payment_account || null,
       memo: editing.memo, note: editing.note, order_no: editing.order_no || null,
-      person: editing.person,
+      has_receipt: editing.has_receipt, person: editing.person,
     }).eq("id", editing.id)
     setEditing(null)
     fetchData()
@@ -360,6 +384,51 @@ export default function Home() {
   }
 
   const currentKindAccounts = ACCOUNTS[newKind as keyof typeof ACCOUNTS] || ACCOUNTS.keiji
+
+  // 証憑票カード内表示コンポーネント
+  function VoucherCard({ r }: { r: Transaction }) {
+    const lines = getVoucherDisplay(r)
+    return (
+      <>
+        <div style={{ padding: "4px 6px", borderBottom: "1px solid #999", background: "#f9f9f9" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontWeight: "bold" }}>
+            <span>{r.voucher_no}</span><span>{r.date}</span>
+          </div>
+          <div style={{ fontSize: "9px" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
+          {r.memo && <div style={{ fontSize: "8px", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.memo}</div>}
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {lines.length > 0 && (
+            <div style={{ textAlign: "center", fontSize: "11px", color: "#444", lineHeight: 1.8 }}>
+              {lines.map((l, i) => <div key={i} style={{ fontWeight: i === 0 ? "bold" : "normal" }}>{l}</div>)}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
+
+  function VoucherCardPrint({ r }: { r: Transaction }) {
+    const lines = getVoucherDisplay(r)
+    return (
+      <>
+        <div style={{ padding: "2mm 3mm", borderBottom: "0.5px solid #999", background: "#f5f5f5" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "7pt", fontWeight: "bold" }}>
+            <span>{r.voucher_no}</span><span>{r.date}</span>
+          </div>
+          <div style={{ fontSize: "7pt" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
+          {r.memo && <div style={{ fontSize: "6pt", color: "#555" }}>{r.memo}</div>}
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {lines.length > 0 && (
+            <div style={{ textAlign: "center", fontSize: "8pt", color: "#333", lineHeight: 1.8 }}>
+              {lines.map((l, i) => <div key={i} style={{ fontWeight: i === 0 ? "bold" : "normal" }}>{l}</div>)}
+            </div>
+          )}
+        </div>
+      </>
+    )
+  }
 
   return (
     <div style={{ padding: "16px", fontFamily: "sans-serif", maxWidth: "1000px", margin: "0 auto" }}>
@@ -499,6 +568,7 @@ export default function Home() {
                   <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none" }}>{r.memo}</div>
                   {r.note && <div style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
                   {r.order_no && <div style={{ fontSize: "11px", color: "#f97316", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🛒 {r.order_no}</div>}
+                  {!r.has_receipt && !r.is_void && <div style={{ fontSize: "10px", color: "#dc2626" }}>❌証憑無</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center", whiteSpace: "nowrap" }}>
                   {r.voucher_no && !r.is_void && (
@@ -605,6 +675,19 @@ export default function Home() {
                 </div>
               )}
               <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>証憑</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => setNewHasReceipt(true)}
+                    style={{ flex: 1, padding: "10px", background: newHasReceipt ? "#16a34a" : "#e5e7eb", color: newHasReceipt ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                    📄 証憑あり
+                  </button>
+                  <button onClick={() => setNewHasReceipt(false)}
+                    style={{ flex: 1, padding: "10px", background: !newHasReceipt ? "#dc2626" : "#e5e7eb", color: !newHasReceipt ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                    ❌ 証憑なし
+                  </button>
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>登録番号（任意）</label>
                 <input value={newInvoiceNo} onChange={e => setNewInvoiceNo(e.target.value)} placeholder="T1234567890123"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
@@ -697,6 +780,19 @@ export default function Home() {
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
               <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>証憑</label>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button onClick={() => setEditing({ ...editing, has_receipt: true })}
+                    style={{ flex: 1, padding: "10px", background: editing.has_receipt ? "#16a34a" : "#e5e7eb", color: editing.has_receipt ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                    📄 証憑あり
+                  </button>
+                  <button onClick={() => setEditing({ ...editing, has_receipt: false })}
+                    style={{ flex: 1, padding: "10px", background: !editing.has_receipt ? "#dc2626" : "#e5e7eb", color: !editing.has_receipt ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                    ❌ 証憑なし
+                  </button>
+                </div>
+              </div>
+              <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>担当</label>
                 <select value={editing.person} onChange={e => setEditing({ ...editing, person: e.target.value })}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
@@ -747,7 +843,6 @@ export default function Home() {
             @media screen { .print-only { display: none; } }
           `}</style>
 
-          {/* ヘッダー */}
           <div className="no-print" style={{ padding: "8px 16px", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", borderBottom: "1px solid #e5e7eb", background: "#f9fafb" }}>
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: "8px 16px", background: printPage === 0 ? "#e5e7eb" : "#2563eb", color: printPage === 0 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === 0 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>←</button>
@@ -756,8 +851,6 @@ export default function Home() {
             </span>
             <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage >= totalPrintPages - 1}
               style={{ padding: "8px 16px", background: printPage >= totalPrintPages - 1 ? "#e5e7eb" : "#2563eb", color: printPage >= totalPrintPages - 1 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage >= totalPrintPages - 1 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>→</button>
-
-            {/* 未印刷/印刷済み切り替え */}
             <div style={{ display: "flex", gap: "4px", marginLeft: "8px" }}>
               {[
                 { key: "unprinted", label: `未印刷（${allPrintableRows.filter(r => !r.is_printed).length}）` },
@@ -770,7 +863,6 @@ export default function Home() {
                 </button>
               ))}
             </div>
-
             <button onClick={markPageAsPrinted} disabled={markingPrinted || printFilter === "printed"}
               style={{ padding: "6px 12px", background: markingPrinted ? "#9ca3af" : "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}>
               {markingPrinted ? "処理中..." : "🖨 このページを印刷済みに"}
@@ -780,9 +872,7 @@ export default function Home() {
               全件印刷済みに
             </button>
             <button onClick={() => window.print()}
-              style={{ padding: "8px 16px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
-              印刷
-            </button>
+              style={{ padding: "8px 16px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>印刷</button>
             <button onClick={() => setShowPrint(false)}
               style={{ padding: "8px 14px", background: "#e5e7eb", border: "none", borderRadius: "6px", cursor: "pointer" }}>閉じる</button>
           </div>
@@ -797,24 +887,8 @@ export default function Home() {
                 <div key={i} style={{ border: "2px solid #000", display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" }}>
                   {r ? (
                     <>
-                      {r.is_printed && (
-                        <div style={{ position: "absolute", top: "2px", right: "4px", fontSize: "10px", color: "#16a34a", fontWeight: "bold" }}>🖨済</div>
-                      )}
-                      <div style={{ padding: "4px 6px", borderBottom: "1px solid #999", background: "#f9f9f9" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontWeight: "bold" }}>
-                          <span>{r.voucher_no}</span><span>{r.date}</span>
-                        </div>
-                        <div style={{ fontSize: "9px" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
-                        {r.memo && <div style={{ fontSize: "8px", color: "#555", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.memo}</div>}
-                      </div>
-                      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {r.method !== "現金" && (
-                          <div style={{ textAlign: "center", fontSize: "11px", color: "#444", lineHeight: 1.6 }}>
-                            <div style={{ fontWeight: "bold" }}>証憑無し</div>
-                            <div>{r.payment_account || methodToKind(r.method)}より</div>
-                          </div>
-                        )}
-                      </div>
+                      {r.is_printed && <div style={{ position: "absolute", top: "2px", right: "4px", fontSize: "10px", color: "#16a34a", fontWeight: "bold" }}>🖨済</div>}
+                      <VoucherCard r={r} />
                     </>
                   ) : (
                     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#ddd", fontSize: "11px" }}>（空欄）</div>
@@ -834,25 +908,7 @@ export default function Home() {
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "4mm", height: "270mm" }}>
                   {getPageRows(pageIdx).map((r, i) => (
                     <div key={i} style={{ border: "1.5px solid #000", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                      {r ? (
-                        <>
-                          <div style={{ padding: "2mm 3mm", borderBottom: "0.5px solid #999", background: "#f5f5f5" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: "7pt", fontWeight: "bold" }}>
-                              <span>{r.voucher_no}</span><span>{r.date}</span>
-                            </div>
-                            <div style={{ fontSize: "7pt" }}>{r.account} ¥{r.amount.toLocaleString()}{r.tax_amount ? `（¥${r.tax_amount.toLocaleString()}）` : ""}</div>
-                            {r.memo && <div style={{ fontSize: "6pt", color: "#555" }}>{r.memo}</div>}
-                          </div>
-                          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            {r.method !== "現金" && (
-                              <div style={{ textAlign: "center", fontSize: "8pt", color: "#333", lineHeight: 1.8 }}>
-                                <div style={{ fontWeight: "bold" }}>証憑無し</div>
-                                <div>{r.payment_account || methodToKind(r.method)}より</div>
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      ) : <div style={{ flex: 1 }} />}
+                      {r ? <VoucherCardPrint r={r} /> : <div style={{ flex: 1 }} />}
                     </div>
                   ))}
                 </div>
