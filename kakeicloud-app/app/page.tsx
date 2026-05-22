@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.8 | 2026/05/21
+ * kakeicloud v1.9.9 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -64,6 +64,15 @@ const TAX_TYPE: Record<string, string> = {
   keiji: "課税仕入", uriage: "課税売上", kojyo: "対象外", sonota: "対象外",
 }
 
+const FILTER_KINDS = [
+  { key: "all", label: "全件" },
+  { key: "keiji", label: "経費" },
+  { key: "uriage", label: "売上" },
+  { key: "kojyo", label: "控除" },
+  { key: "kaigohiyo", label: "開業費" },
+  { key: "sonota", label: "その他" },
+]
+
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i)
 
@@ -90,6 +99,7 @@ export default function Home() {
   const [bulkLoading, setBulkLoading] = useState(false)
   const [showPrint, setShowPrint] = useState(false)
   const [printPage, setPrintPage] = useState(0)
+  const [filterKind, setFilterKind] = useState("all")
 
   const [newDate, setNewDate] = useState(new Date().toISOString().split("T")[0])
   const [newKind, setNewKind] = useState("keiji")
@@ -140,7 +150,19 @@ export default function Home() {
     )
   }
 
-  const printableRows = rows.filter(r => r.voucher_no && !r.is_void)
+  const activeRows = rows.filter(r => !r.is_void)
+
+  const displayRows = (() => {
+    if (filterKind === "all") return rows
+    if (filterKind === "keiji") return rows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却")
+    if (filterKind === "uriage") return rows.filter(r => ACCOUNTS.uriage.includes(r.account))
+    if (filterKind === "kojyo") return rows.filter(r => ACCOUNTS.kojyo.includes(r.account))
+    if (filterKind === "kaigohiyo") return rows.filter(r => r.account === "開業費償却")
+    if (filterKind === "sonota") return rows.filter(r => ACCOUNTS.sonota.includes(r.account))
+    return rows
+  })()
+
+  const printableRows = activeRows.filter(r => r.voucher_no)
   const ITEMS_PER_PAGE = 6
   const totalPrintPages = Math.ceil(printableRows.length / ITEMS_PER_PAGE)
 
@@ -262,7 +284,6 @@ export default function Home() {
   }
 
   const kojyoAccounts = ["医療費", "寄附金", "社会保険料", "生命保険料", "地震保険料", "小規模企業共済"]
-  const activeRows = rows.filter(r => !r.is_void)
   const total = activeRows.reduce((sum, r) => {
     if (r.account === "売上高") return sum
     if (kojyoAccounts.includes(r.account)) return sum
@@ -270,6 +291,7 @@ export default function Home() {
   }, 0)
   const income = activeRows.reduce((sum, r) => r.account === "売上高" ? sum + r.amount : sum, 0)
   const iryo = activeRows.reduce((sum, r) => r.account === "医療費" ? sum + r.amount : sum, 0)
+  const kaigohiyo = activeRows.reduce((sum, r) => r.account === "開業費償却" ? sum + r.amount : sum, 0)
   const noVoucherCount = activeRows.filter(r => !r.voucher_no).length
 
   const modalOverlay: React.CSSProperties = {
@@ -334,6 +356,30 @@ export default function Home() {
         ))}
       </div>
 
+      {/* 科目フィルタ */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
+        {FILTER_KINDS.map(f => (
+          <button key={f.key} onClick={() => setFilterKind(f.key)}
+            style={{ padding: "6px 14px", background: filterKind === f.key ? "#f97316" : "#f3f4f6", color: filterKind === f.key ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: filterKind === f.key ? "bold" : "normal" }}>
+            {f.label}
+            {f.key !== "all" && (
+              <span style={{ marginLeft: "4px", fontSize: "11px" }}>
+                ({(f.key === "keiji" ? rows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却" && !r.is_void)
+                  : f.key === "uriage" ? rows.filter(r => ACCOUNTS.uriage.includes(r.account) && !r.is_void)
+                  : f.key === "kojyo" ? rows.filter(r => ACCOUNTS.kojyo.includes(r.account) && !r.is_void)
+                  : f.key === "kaigohiyo" ? rows.filter(r => r.account === "開業費償却" && !r.is_void)
+                  : rows.filter(r => ACCOUNTS.sonota.includes(r.account) && !r.is_void)).length})
+              </span>
+            )}
+          </button>
+        ))}
+        {filterKind !== "all" && (
+          <span style={{ padding: "6px 8px", fontSize: "12px", color: "#6b7280", alignSelf: "center" }}>
+            {displayRows.filter(r => !r.is_void).length}件表示中
+          </span>
+        )}
+      </div>
+
       {noVoucherCount > 0 && (
         <div style={{ background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: "8px", padding: "10px 16px", marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <span style={{ fontSize: "13px", color: "#92400e" }}>証憑番号なし（全年）：<strong>{noVoucherCount}件</strong></span>
@@ -359,6 +405,12 @@ export default function Home() {
             <div style={{ fontSize: "18px", fontWeight: "bold", color: "#2563eb" }}>{iryo.toLocaleString()}円</div>
           </div>
         )}
+        {kaigohiyo > 0 && (
+          <div style={{ background: "#fff7ed", padding: "12px 20px", borderRadius: "8px" }}>
+            <div style={{ fontSize: "12px", color: "#666" }}>開業費合計</div>
+            <div style={{ fontSize: "18px", fontWeight: "bold", color: "#f97316" }}>{kaigohiyo.toLocaleString()}円</div>
+          </div>
+        )}
         <div style={{ background: "#f8fafc", padding: "12px 20px", borderRadius: "8px" }}>
           <div style={{ fontSize: "12px", color: "#666" }}>件数</div>
           <div style={{ fontSize: "18px", fontWeight: "bold" }}>{activeRows.length}件</div>
@@ -380,7 +432,7 @@ export default function Home() {
             </tr>
           </thead>
           <tbody>
-            {rows.map(r => (
+            {displayRows.map(r => (
               <tr key={r.id} style={{
                 borderBottom: "1px solid #e5e7eb",
                 background: r.is_void ? "#f9fafb" : r.is_confirmed ? "#f0fdf4" : "white",
