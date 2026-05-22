@@ -1,7 +1,7 @@
 /**
- * kakeicloud v1.9.7 | 2026/05/21
+ * kakeicloud v1.9.8 | 2026/05/28
  * kakeicloud-app/lib/version.ts
  */
 
-export const VERSION = "v1.9.7"
+export const VERSION = "v1.9.8"
 
