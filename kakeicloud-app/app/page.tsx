@@ -1,5 +1,6 @@
+// v2.0.6 app/page.tsx 編集モーダル科目をselectに変更・科目追加
 /**
- * kakeicloud v2.0.2 | 2026/05/21
+ * kakeicloud v2.0.6 | 2026/05/22
  * kakeicloud-app/app/page.tsx
  */
 
@@ -41,10 +42,15 @@ type PaymentAccount = {
 }
 
 const ACCOUNTS = {
-  keiji: ["消耗品費", "通信費", "旅費交通費", "接待交際費", "地代家賃", "水道光熱費", "修繕費", "広告宣伝費", "外注費", "減価償却費", "雑費", "開業費償却"],
+  keiji: [
+    "消耗品費", "通信費", "旅費交通費", "接待交際費", "地代家賃",
+    "水道光熱費", "修繕費", "広告宣伝費", "外注費", "減価償却費",
+    "車両費", "諸会費", "新聞図書費", "研修費", "支払手数料",
+    "租税公課", "保険料", "雑費", "開業費償却"
+  ],
   uriage: ["売上高"],
   kojyo: ["医療費", "寄附金", "社会保険料", "生命保険料", "地震保険料", "小規模企業共済"],
-  sonota: ["普通預金", "現金", "未払金", "前払費用", "雑収入"],
+  sonota: ["普通預金", "現金", "未払金", "前払費用", "棚卸資産", "事業主貸", "事業主借", "雑収入"],
 }
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -97,21 +103,21 @@ function sortByVoucherNo(rows: Transaction[]): Transaction[] {
   })
 }
 
+function inferKind(account: string): string {
+  if (ACCOUNTS.keiji.includes(account)) return "keiji"
+  if (ACCOUNTS.uriage.includes(account)) return "uriage"
+  if (ACCOUNTS.kojyo.includes(account)) return "kojyo"
+  return "sonota"
+}
+
 function getVoucherDisplay(r: Transaction): string[] {
-  // 優先度1：科目判定
   if (r.account === "医療費") return ["【別途領収書保管】", "医療費"]
   if (r.account === "寄附金") return ["【寄附金受領証保管】"]
   if (["社会保険料", "生命保険料", "地震保険料", "小規模企業共済"].includes(r.account)) return ["【別途証明書保管】"]
   if (r.account === "減価償却費") return ["【固定資産台帳参照】"]
   if (r.account === "売上高") return ["【請求書控え保管】"]
-
-  // 優先度2：金額判定
   if (r.amount >= 300000) return ["【固定資産台帳参照】"]
-
-  // 優先度3：証憑有無
-  if (r.has_receipt) return [] // 空白（領収書が証憑）
-
-  // 優先度4：支払方法
+  if (r.has_receipt) return []
   if (r.order_no) return ["【証憑無し】", `注文番号：${r.order_no}`]
   if (r.method === "未払金") return ["【証憑無し】", `${r.payment_account || "カード"}より`]
   if (r.method === "普通預金") return ["【振込明細保管】", `${r.payment_account || "銀行"}より`]
@@ -126,6 +132,7 @@ export default function Home() {
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Transaction | null>(null)
+  const [editKind, setEditKind] = useState("keiji")
   const [showForm, setShowForm] = useState(false)
   const [savedVoucherNo, setSavedVoucherNo] = useState<string | null>(null)
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -384,8 +391,8 @@ export default function Home() {
   }
 
   const currentKindAccounts = ACCOUNTS[newKind as keyof typeof ACCOUNTS] || ACCOUNTS.keiji
+  const editKindAccounts = ACCOUNTS[editKind as keyof typeof ACCOUNTS] || ACCOUNTS.keiji
 
-  // 証憑票カード内表示コンポーネント
   function VoucherCard({ r }: { r: Transaction }) {
     const lines = getVoucherDisplay(r)
     return (
@@ -576,7 +583,7 @@ export default function Home() {
                       style={{ marginRight: "4px", padding: "2px 8px", background: "#0891b2", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>🖨</button>
                   )}
                   {!r.is_void && (
-                    <button onClick={() => setEditing(r)}
+                    <button onClick={() => { setEditing(r); setEditKind(inferKind(r.account)) }}
                       style={{ marginRight: "4px", padding: "2px 8px", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>編集</button>
                   )}
                   <button onClick={() => voidRow(r.id, r.is_void)}
@@ -756,9 +763,24 @@ export default function Home() {
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
               <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>種別</label>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+                  {Object.keys(ACCOUNTS).map(k => (
+                    <button key={k}
+                      onClick={() => {
+                        setEditKind(k)
+                        setEditing({ ...editing, account: ACCOUNTS[k as keyof typeof ACCOUNTS][0] })
+                      }}
+                      style={{ padding: "8px 12px", background: editKind === k ? "#7c3aed" : "#e5e7eb", color: editKind === k ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
+                      {ACCOUNT_LABELS[k]}
+                    </button>
+                  ))}
+                </div>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>科目</label>
-                <input value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value })}
-                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
+                <select value={editing.account} onChange={e => setEditing({ ...editing, account: e.target.value })}
+                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
+                  {editKindAccounts.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>金額（税込）</label>
