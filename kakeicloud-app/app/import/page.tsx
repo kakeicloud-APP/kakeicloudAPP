@@ -321,6 +321,21 @@ export default function ImportPage() {
     if (!amazonData) return
     setSavingAmazon(true)
     try {
+      // 注文番号重複チェック
+      if (amazonData.order_no) {
+        const { data: existing } = await supabase
+          .from('transactions')
+          .select('id, date, memo')
+          .eq('order_no', amazonData.order_no)
+          .limit(1)
+        if (existing && existing.length > 0) {
+          const dup = existing[0]
+          const go = confirm(
+            `⚠️ 注文番号 ${amazonData.order_no} はすでに登録されています。\n日付：${dup.date}\n摘要：${dup.memo}\n\n分割請求等の場合は続けて登録できます。\n続けますか？`
+          )
+          if (!go) { setSavingAmazon(false); return }
+        }
+      }
       const year = parseInt(amazonData.date.split('-')[0])
       const { error } = await supabase.from('transactions').insert({
         person, date: amazonData.date, account: amazonAccount,
