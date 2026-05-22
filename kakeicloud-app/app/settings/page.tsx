@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.4 | 2026/05/20
+ * kakeicloud v2.0.0 | 2026/05/21
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -59,20 +59,43 @@ export default function Settings() {
   const [ruleAction, setRuleAction] = useState("keiji")
   const [ruleAccount, setRuleAccount] = useState("消耗品費")
   const [rulePerson, setRulePerson] = useState("both")
+  const [openingDateHiroshi, setOpeningDateHiroshi] = useState("2025-01-01")
+  const [openingDateWife, setOpeningDateWife] = useState("")
+  const [savingDates, setSavingDates] = useState(false)
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
     setLoading(true)
-    const [{ data: a }, { data: p }, { data: r }] = await Promise.all([
+    const [{ data: a }, { data: p }, { data: r }, { data: s }] = await Promise.all([
       supabase.from("payment_accounts").select("*").order("kind").order("name"),
       supabase.from("persons").select("*"),
       supabase.from("classification_rules").select("*").order("priority", { ascending: false }).order("keyword"),
+      supabase.from("settings").select("*"),
     ])
     setAccounts(a || [])
     setPersons(p || [])
     setRules(r || [])
+    if (s) {
+      const dh = s.find((row: any) => row.key === "opening_date_hiroshi")
+      const dw = s.find((row: any) => row.key === "opening_date_wife")
+      if (dh) setOpeningDateHiroshi(dh.value)
+      if (dw) setOpeningDateWife(dw.value)
+    }
     setLoading(false)
+  }
+
+  async function saveOpeningDates() {
+    setSavingDates(true)
+    try {
+      await supabase.from("settings").upsert({ key: "opening_date_hiroshi", value: openingDateHiroshi })
+      await supabase.from("settings").upsert({ key: "opening_date_wife", value: openingDateWife || "" })
+      alert("開業日を保存しました！")
+    } catch (e: any) {
+      alert("保存エラー: " + e.message)
+    } finally {
+      setSavingDates(false)
+    }
   }
 
   async function savePerson() {
@@ -142,10 +165,16 @@ export default function Settings() {
     const prefix = bulkPerson === "hiroshi" ? "H" : "W"
     const years = [...new Set(unassigned.map((r: any) => r.year))]
     for (const year of years) {
-      const { count } = await supabase
-        .from("transactions").select("*", { count: "exact", head: true })
-        .eq("person", bulkPerson).eq("year", year).not("voucher_no", "is", null)
-      let counter = (count || 0) + 1
+      const { data: existing } = await supabase
+        .from("transactions").select("voucher_no")
+        .eq("person", bulkPerson).eq("year", year)
+        .not("voucher_no", "is", null)
+        .order("voucher_no", { ascending: false })
+        .limit(1)
+      let counter = 1
+      if (existing && existing.length > 0 && existing[0].voucher_no) {
+        counter = parseInt(existing[0].voucher_no.split("-")[1]) + 1
+      }
       for (const record of unassigned.filter((r: any) => r.year === year)) {
         const voucherNo = `${prefix}${year}-${String(counter).padStart(4, "0")}`
         await supabase.from("transactions").update({ voucher_no: voucherNo }).eq("id", record.id)
@@ -216,6 +245,27 @@ export default function Settings() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* 開業日マスター */}
+      <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: "12px", padding: "16px", marginBottom: "24px" }}>
+        <h2 style={{ margin: "0 0 4px", fontSize: "15px", color: "#374151" }}>📅 開業日マスター</h2>
+        <div style={{ fontSize: "11px", color: "#9ca3af", marginBottom: "16px" }}>開業日より前の仕訳は開業費として扱います</div>
+        <div style={{ marginBottom: "12px" }}>
+          <label style={{ display: "block", fontSize: "12px", color: "#374151", marginBottom: "4px", fontWeight: "bold" }}>廣！の開業日</label>
+          <input type="date" value={openingDateHiroshi} onChange={e => setOpeningDateHiroshi(e.target.value)}
+            style={{ width: "100%", padding: "10px", border: "1px solid #fed7aa", borderRadius: "8px", boxSizing: "border-box", fontSize: "15px" }} />
+        </div>
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", fontSize: "12px", color: "#374151", marginBottom: "4px", fontWeight: "bold" }}>妻の開業日（任意）</label>
+          <input type="date" value={openingDateWife} onChange={e => setOpeningDateWife(e.target.value)}
+            style={{ width: "100%", padding: "10px", border: "1px solid #fed7aa", borderRadius: "8px", boxSizing: "border-box", fontSize: "15px" }} />
+          <div style={{ fontSize: "11px", color: "#9ca3af", marginTop: "4px" }}>未設定の場合は空欄のままでOK</div>
+        </div>
+        <button onClick={saveOpeningDates} disabled={savingDates}
+          style={{ width: "100%", padding: "12px", background: savingDates ? "#9ca3af" : "#f97316", color: "white", border: "none", borderRadius: "8px", cursor: savingDates ? "default" : "pointer", fontWeight: "bold", fontSize: "14px" }}>
+          {savingDates ? "保存中..." : "💾 開業日を保存"}
+        </button>
       </div>
 
       {/* 操作セクション */}
