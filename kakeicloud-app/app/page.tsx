@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.7 | 2026/05/21
+ * kakeicloud v1.9.8 | 2026/05/21
  * kakeicloud-app/app/page.tsx
  */
 
@@ -22,6 +22,7 @@ type Transaction = {
   payment_account?: string
   memo: string
   note?: string
+  order_no?: string
   year: number
   is_closing: boolean
   is_confirmed: boolean
@@ -101,6 +102,7 @@ export default function Home() {
   const [newPaymentAccount, setNewPaymentAccount] = useState("")
   const [newMemo, setNewMemo] = useState("")
   const [newNote, setNewNote] = useState("")
+  const [newOrderNo, setNewOrderNo] = useState("")
 
   useEffect(() => { fetchData(); fetchPaymentAccounts() }, [person, selectedYear])
   useEffect(() => {
@@ -220,7 +222,7 @@ export default function Home() {
       invoice_no: newInvoiceNo || null,
       method,
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
-      memo: newMemo, note: newNote,
+      memo: newMemo, note: newNote, order_no: newOrderNo || null,
       year, is_closing: false, is_confirmed: false, is_void: false, voucher_no: voucherNo,
     })
     if (error) { alert("保存エラー: " + error.message); return }
@@ -228,7 +230,7 @@ export default function Home() {
     setNewDate(new Date().toISOString().split("T")[0])
     setNewKind("keiji"); setNewAmount(""); setNewTaxRate(10); setNewTaxAmount(0)
     setNewInvoiceNo(""); setNewPaymentKind("card"); setNewPaymentAccount("")
-    setNewMemo(""); setNewNote("")
+    setNewMemo(""); setNewNote(""); setNewOrderNo("")
     fetchData()
     setSavedVoucherNo(voucherNo)
   }
@@ -252,7 +254,8 @@ export default function Home() {
       tax_rate: editing.tax_rate, tax_amount: editing.tax_amount,
       invoice_no: editing.invoice_no || null,
       method: editing.method, payment_account: editing.payment_account || null,
-      memo: editing.memo, note: editing.note, person: editing.person,
+      memo: editing.memo, note: editing.note, order_no: editing.order_no || null,
+      person: editing.person,
     }).eq("id", editing.id)
     setEditing(null)
     fetchData()
@@ -401,7 +404,8 @@ export default function Home() {
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", maxWidth: "160px", color: r.is_void ? "#9ca3af" : "inherit" }}>
                   <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none" }}>{r.memo}</div>
-                  {r.note && <div style={{ fontSize: "11px", color: "#9ca3af", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
+                  {r.note && <div style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
+                  {r.order_no && <div style={{ fontSize: "11px", color: "#f97316", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🛒 {r.order_no}</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center", whiteSpace: "nowrap" }}>
                   {r.voucher_no && !r.is_void && (
@@ -517,9 +521,14 @@ export default function Home() {
                 <input value={newMemo} onChange={e => setNewMemo(e.target.value)}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
               </div>
-              <div>
+              <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考</label>
                 <input value={newNote} onChange={e => setNewNote(e.target.value)}
+                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>🛒 注文番号（Amazon等）</label>
+                <input value={newOrderNo} onChange={e => setNewOrderNo(e.target.value)} placeholder="503-XXXXXXX-XXXXXXX"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
               </div>
             </div>
@@ -607,9 +616,15 @@ export default function Home() {
                 <input value={editing.memo} onChange={e => setEditing({ ...editing, memo: e.target.value })}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
-              <div>
+              <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考</label>
                 <input value={editing.note || ""} onChange={e => setEditing({ ...editing, note: e.target.value })}
+                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
+              </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>🛒 注文番号（Amazon等）</label>
+                <input value={editing.order_no || ""} onChange={e => setEditing({ ...editing, order_no: e.target.value })}
+                  placeholder="503-XXXXXXX-XXXXXXX"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
             </div>
