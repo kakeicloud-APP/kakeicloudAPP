@@ -1,5 +1,5 @@
 /**
- * kakeicloud v1.9.8 | 2026/05/21
+ * kakeicloud v2.0.3 | 2026/05/21
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -66,24 +66,15 @@ const KEIJI_ACCOUNTS = [
 ]
 
 const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {
-  keiji: '経費',
-  iryo: '医療費',
-  furusato: 'ふるさと納税',
-  kaji: '家事',
+  keiji: '経費', iryo: '医療費', furusato: 'ふるさと納税', kaji: '家事',
 }
 
 const KIND_TO_ACCOUNT: Record<ReceiptKind, string> = {
-  keiji: '',
-  iryo: '医療費',
-  furusato: '寄附金',
-  kaji: '家事',
+  keiji: '', iryo: '医療費', furusato: '寄附金', kaji: '家事',
 }
 
 const KIND_TO_TAX_TYPE: Record<ReceiptKind, string> = {
-  keiji: '課税仕入',
-  iryo: '対象外',
-  furusato: '対象外',
-  kaji: '対象外',
+  keiji: '課税仕入', iryo: '対象外', furusato: '対象外', kaji: '対象外',
 }
 
 export default function ImportPage() {
@@ -91,6 +82,7 @@ export default function ImportPage() {
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadingText, setLoadingText] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [rules, setRules] = useState<ClassificationRule[]>([])
@@ -103,12 +95,22 @@ export default function ImportPage() {
   const [amazonData, setAmazonData] = useState<AmazonData | null>(null)
   const [amazonAccount, setAmazonAccount] = useState(KEIJI_ACCOUNTS[0])
   const [savingAmazon, setSavingAmazon] = useState(false)
+  const [textInput, setTextInput] = useState('')
+  const [showTextArea, setShowTextArea] = useState(false)
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchMasters() }, [person])
+  useEffect(() => {
+    setTextInput('')
+    setShowTextArea(false)
+    setReceiptData(null)
+    setAmazonData(null)
+    setRows([])
+    setErrorMsg(null)
+  }, [tab])
 
   async function fetchMasters() {
     const [{ data: r }, { data: p }] = await Promise.all([
@@ -138,12 +140,9 @@ export default function ImportPage() {
       const cols = line.split(',').map(c => c.replace(/"/g, '').trim())
       if (!cols[0]) return null
       return {
-        id: `y-${i}`,
-        date: cols[0],
-        description: cols[4] || '',
+        id: `y-${i}`, date: cols[0], description: cols[4] || '',
         amount: parseInt(cols[2] || cols[3] || '0') || 0,
-        status: 'pending' as const,
-        account: cols[1] || '',
+        status: 'pending' as const, account: cols[1] || '',
       }
     }).filter(Boolean) as ImportRow[]
   }
@@ -156,13 +155,35 @@ export default function ImportPage() {
       const amount = parseInt(cols[3]?.replace(/[^0-9-]/g, '') || '0') || 0
       if (amount <= 0) return null
       return {
-        id: `c-${i}`,
-        date: cols[0].replace(/\//g, '-'),
-        description: cols[1] || cols[2] || '',
-        amount,
-        status: 'pending' as const,
+        id: `c-${i}`, date: cols[0].replace(/\//g, '-'),
+        description: cols[1] || cols[2] || '', amount, status: 'pending' as const,
       }
     }).filter(Boolean) as ImportRow[]
+  }
+
+  async function callApi(body: object): Promise<any> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 25000)
+    let res: Response
+    try {
+      res = await fetch('/api/claude', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      })
+    } catch (e: any) {
+      clearTimeout(timer)
+      if (e.name === 'AbortError') throw new Error('timeout 25s')
+      throw new Error(`network error: ${e.message}`)
+    }
+    clearTimeout(timer)
+    const text = await res.text()
+    if (!res.ok) throw new Error(`API error ${res.status}: ${text}`)
+    let json: any
+    try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
+    if (json.error) throw new Error(json.error)
+    return json
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -174,8 +195,8 @@ export default function ImportPage() {
       if (tab === 'レシート') { await handleReceipt(file); return }
       if (tab === 'Amazon') { await handleAmazon(file); return }
       let parsed: ImportRow[] = []
-      if (tab === 'CSV' || tab === 'カードCSV') parsed = applyRules(parseCardCSV(await file.text()))
-      else if (tab === 'yayoi' || tab === '弥生CSV') parsed = applyRules(parseYayoiCSV(await file.text()))
+      if (tab === 'カードCSV') parsed = applyRules(parseCardCSV(await file.text()))
+      else if (tab === '弥生CSV') parsed = applyRules(parseYayoiCSV(await file.text()))
       else if (tab === 'PDF') { parsed = await handlePDF(file); parsed = applyRules(parsed) }
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
@@ -190,30 +211,48 @@ export default function ImportPage() {
     }
   }
 
+  async function handleTextRead() {
+    if (!textInput.trim()) { alert('テキストを入力してください'); return }
+    setLoadingText(true)
+    setErrorMsg(null)
+    try {
+      if (tab === 'レシート') {
+        const json = await callApi({ type: 'text_receipt', text: textInput })
+        if (!json.data) throw new Error('no data')
+        setReceiptData(json.data)
+        setReceiptKind('keiji')
+        setReceiptAccount(json.data.account || KEIJI_ACCOUNTS[0])
+        setShowTextArea(false)
+      } else if (tab === 'Amazon') {
+        const json = await callApi({ type: 'text_amazon', text: textInput })
+        if (!json.data) throw new Error('no data')
+        setAmazonData(json.data)
+        setAmazonAccount(json.data.account || KEIJI_ACCOUNTS[0])
+        setShowTextArea(false)
+      } else if (tab === 'カードCSV' || tab === '弥生CSV') {
+        const json = await callApi({ type: 'text_card', text: textInput })
+        if (!Array.isArray(json.data)) throw new Error('data error')
+        const parsed: ImportRow[] = json.data.map((d: any, i: number) => ({
+          id: `t-${i}`, date: d.date || '', description: d.description || '',
+          amount: Math.abs(d.amount || 0), status: 'pending' as const,
+        }))
+        setRows(applyRules(parsed))
+        setShowTextArea(false)
+        if (parsed.length === 0) alert('data not found')
+      }
+    } catch (error: any) {
+      const msg = error.message || 'error'
+      setErrorMsg(msg)
+      alert(msg)
+    } finally {
+      setLoadingText(false)
+    }
+  }
+
   async function handlePDF(file: File): Promise<ImportRow[]> {
     const base64 = await fileToBase64(file)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 25000)
-    let res: Response
-    try {
-      res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' }),
-        signal: controller.signal,
-      })
-    } catch (e: any) {
-      clearTimeout(timer)
-      if (e.name === 'AbortError') throw new Error('timeout 25s')
-      throw new Error(`network error: ${e.message}`)
-    }
-    clearTimeout(timer)
-    const text = await res.text()
-    if (!res.ok) throw new Error(`API error ${res.status}: ${text}`)
-    let json: any
-    try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
-    if (json.error) throw new Error(json.error)
-    if (!Array.isArray(json.data)) throw new Error(`data error: ${text.slice(0, 200)}`)
+    const json = await callApi({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' })
+    if (!Array.isArray(json.data)) throw new Error(`data error`)
     return json.data.map((d: any, i: number) => ({
       id: `pdf-${i}`, date: d.date || '', description: d.description || '',
       amount: Math.abs(d.amount || 0), status: 'pending' as const,
@@ -222,27 +261,7 @@ export default function ImportPage() {
 
   async function handleReceipt(file: File) {
     const base64 = await fileToBase64(file)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 25000)
-    let res: Response
-    try {
-      res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'receipt', imageBase64: base64, mediaType: file.type || 'image/jpeg' }),
-        signal: controller.signal,
-      })
-    } catch (e: any) {
-      clearTimeout(timer)
-      if (e.name === 'AbortError') throw new Error('timeout 25s')
-      throw new Error(`network error: ${e.message}`)
-    }
-    clearTimeout(timer)
-    const text = await res.text()
-    if (!res.ok) throw new Error(`API error ${res.status}: ${text}`)
-    let json: any
-    try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
-    if (json.error) throw new Error(json.error)
+    const json = await callApi({ type: 'receipt', imageBase64: base64, mediaType: file.type || 'image/jpeg' })
     if (!json.data) throw new Error('no data')
     setReceiptData(json.data)
     setReceiptKind('keiji')
@@ -251,27 +270,7 @@ export default function ImportPage() {
 
   async function handleAmazon(file: File) {
     const base64 = await fileToBase64(file)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 25000)
-    let res: Response
-    try {
-      res = await fetch('/api/claude', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'amazon', imageBase64: base64, mediaType: file.type || 'image/jpeg' }),
-        signal: controller.signal,
-      })
-    } catch (e: any) {
-      clearTimeout(timer)
-      if (e.name === 'AbortError') throw new Error('timeout 25s')
-      throw new Error(`network error: ${e.message}`)
-    }
-    clearTimeout(timer)
-    const text = await res.text()
-    if (!res.ok) throw new Error(`API error ${res.status}: ${text}`)
-    let json: any
-    try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
-    if (json.error) throw new Error(json.error)
+    const json = await callApi({ type: 'amazon', imageBase64: base64, mediaType: file.type || 'image/jpeg' })
     if (!json.data) throw new Error('no data')
     setAmazonData(json.data)
     setAmazonAccount(json.data.account || KEIJI_ACCOUNTS[0])
@@ -290,11 +289,7 @@ export default function ImportPage() {
     if (!receiptData) return
     setSavingReceipt(true)
     try {
-      if (receiptKind === 'kaji') {
-        setReceiptData(null)
-        alert('家事として記録しました')
-        return
-      }
+      if (receiptKind === 'kaji') { setReceiptData(null); alert('家事として記録しました'); return }
       const account = receiptKind === 'keiji' ? receiptAccount : KIND_TO_ACCOUNT[receiptKind]
       const year = parseInt(receiptData.date.split('-')[0])
       const { error } = await supabase.from('transactions').insert({
@@ -302,13 +297,13 @@ export default function ImportPage() {
         tax_type: KIND_TO_TAX_TYPE[receiptKind],
         tax_rate: receiptKind === 'keiji' ? receiptData.tax_rate : 0,
         tax_amount: receiptKind === 'keiji' ? receiptData.tax_amount : 0,
-        invoice_no: receiptData.invoice_no || null,
-        method: '未払金',
+        invoice_no: receiptData.invoice_no || null, method: '未払金',
         memo: receiptData.memo || receiptData.store_name,
-        year, is_closing: false, is_confirmed: false, is_void: false,
+        year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: true,
       })
       if (error) throw new Error(error.message)
       setReceiptData(null)
+      setTextInput('')
       alert('登録しました')
     } catch (e: any) {
       alert(`save error: ${e.message}`)
@@ -321,37 +316,26 @@ export default function ImportPage() {
     if (!amazonData) return
     setSavingAmazon(true)
     try {
-      // 注文番号重複チェック
       if (amazonData.order_no) {
         const { data: existing } = await supabase
-          .from('transactions')
-          .select('id, date, memo')
-          .eq('order_no', amazonData.order_no)
-          .limit(1)
+          .from('transactions').select('id, date, memo').eq('order_no', amazonData.order_no).limit(1)
         if (existing && existing.length > 0) {
           const dup = existing[0]
-          const go = confirm(
-            `⚠️ 注文番号 ${amazonData.order_no} はすでに登録されています。\n日付：${dup.date}\n摘要：${dup.memo}\n\n分割請求等の場合は続けて登録できます。\n続けますか？`
-          )
+          const go = confirm(`⚠️ 注文番号 ${amazonData.order_no} はすでに登録されています。\n日付：${dup.date}\n摘要：${dup.memo}\n\n続けますか？`)
           if (!go) { setSavingAmazon(false); return }
         }
       }
       const year = parseInt(amazonData.date.split('-')[0])
       const { error } = await supabase.from('transactions').insert({
-        person, date: amazonData.date, account: amazonAccount,
-        amount: amazonData.amount,
-        tax_type: '課税仕入',
-        tax_rate: amazonData.tax_rate || 10,
-        tax_amount: amazonData.tax_amount || 0,
-        invoice_no: amazonData.invoice_no || null,
-        method: '未払金',
-        memo: amazonData.memo,
-        note: amazonData.note || null,
-        order_no: amazonData.order_no || null,
-        year, is_closing: false, is_confirmed: false, is_void: false,
+        person, date: amazonData.date, account: amazonAccount, amount: amazonData.amount,
+        tax_type: '課税仕入', tax_rate: amazonData.tax_rate || 10, tax_amount: amazonData.tax_amount || 0,
+        invoice_no: amazonData.invoice_no || null, method: '未払金',
+        memo: amazonData.memo, note: amazonData.note || null, order_no: amazonData.order_no || null,
+        year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
       })
       if (error) throw new Error(error.message)
       setAmazonData(null)
+      setTextInput('')
       alert('登録しました')
     } catch (e: any) {
       alert(`save error: ${e.message}`)
@@ -415,6 +399,7 @@ export default function ImportPage() {
   const isReceiptTab = tab === 'レシート'
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
+  const showTextReadButton = tab === 'レシート' || tab === 'Amazon' || tab === 'カードCSV' || tab === '弥生CSV'
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
@@ -440,7 +425,7 @@ export default function ImportPage() {
 
       <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', overflowX: 'auto' }}>
         {TABS.map(t => (
-          <button key={t} onClick={() => { setTab(t); setRows([]); setErrorMsg(null); setReceiptData(null); setAmazonData(null) }}
+          <button key={t} onClick={() => setTab(t)}
             style={{ padding: '8px 16px', background: tab === t ? '#7c3aed' : '#e5e7eb', color: tab === t ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '13px' }}>{t}</button>
         ))}
       </div>
@@ -456,7 +441,7 @@ export default function ImportPage() {
       )}
 
       {!isReceiptTab && !isAmazonTab && (
-        <div style={{ marginBottom: '16px' }}>
+        <div style={{ marginBottom: '12px' }}>
           <input ref={fileRef} type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
             style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
@@ -466,7 +451,7 @@ export default function ImportPage() {
       )}
 
       {isReceiptTab && !receiptData && (
-        <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => cameraRef.current?.click()} disabled={loading}
             style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
@@ -481,7 +466,7 @@ export default function ImportPage() {
       )}
 
       {isAmazonTab && !amazonData && (
-        <div style={{ marginBottom: '16px', display: 'flex', gap: '8px' }}>
+        <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => cameraRef.current?.click()} disabled={loading}
             style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
@@ -492,6 +477,43 @@ export default function ImportPage() {
             style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
             {loading ? 'AI読取中...' : '🖼 スクショを選択'}
           </button>
+        </div>
+      )}
+
+      {/* テキスト入力エリア */}
+      {showTextReadButton && !receiptData && !amazonData && (
+        <div style={{ marginBottom: '16px' }}>
+          <button onClick={() => setShowTextArea(!showTextArea)}
+            style={{ width: '100%', padding: '12px', background: showTextArea ? '#e5e7eb' : '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151', textAlign: 'left' }}>
+            📋 テキストから読み取る（API混雑時）{showTextArea ? ' ▲' : ' ▼'}
+          </button>
+          {showTextArea && (
+            <div style={{ marginTop: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', background: '#fafafa' }}>
+              <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>
+                写真から手動でコピーしたテキストを貼り付けてください
+              </label>
+              <textarea
+                value={textInput}
+                onChange={e => setTextInput(e.target.value)}
+                placeholder={
+                  isReceiptTab ? '店名、日付、金額、税率、登録番号などを貼り付け...' :
+                  isAmazonTab ? '注文番号、日付、商品名、金額などを貼り付け...' :
+                  '明細データを貼り付け（日付、店名、金額）...'
+                }
+                style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', minHeight: '120px', fontSize: '13px', resize: 'vertical' }}
+              />
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                <button onClick={handleTextRead} disabled={loadingText || !textInput.trim()}
+                  style={{ flex: 1, padding: '12px', background: loadingText || !textInput.trim() ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: loadingText || !textInput.trim() ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+                  {loadingText ? 'AI読取中...' : '🤖 読み取る'}
+                </button>
+                <button onClick={() => { setTextInput(''); setShowTextArea(false) }}
+                  style={{ padding: '12px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
+                  クリア
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -547,7 +569,7 @@ export default function ImportPage() {
               style={{ flex: 1, padding: '14px', background: savingReceipt ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: savingReceipt ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
               {savingReceipt ? '登録中...' : '💾 登録'}
             </button>
-            <button onClick={() => setReceiptData(null)}
+            <button onClick={() => { setReceiptData(null); setTextInput('') }}
               style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               やり直し
             </button>
@@ -606,7 +628,7 @@ export default function ImportPage() {
               style={{ flex: 1, padding: '14px', background: savingAmazon ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: savingAmazon ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
               {savingAmazon ? '登録中...' : '💾 登録'}
             </button>
-            <button onClick={() => setAmazonData(null)}
+            <button onClick={() => { setAmazonData(null); setTextInput('') }}
               style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
               やり直し
             </button>
