@@ -1,6 +1,6 @@
-// v2.1.0 app/import/page.tsx KEIJI_ACCOUNTS科目追加
+// v2.1.2 app/import/page.tsx saveToStagingにAmazonマッチング追加
 /**
- * kakeicloud v2.1.0 | 2026/05/22
+ * kakeicloud v2.1.2 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -176,6 +176,24 @@ export default function ImportPage() {
     } catch (e) {
       console.error('card_imports error:', e); return null
     }
+  }
+
+  async function findAmazonMatch(date: string, amount: number): Promise<{ id: string; order_no: string; memo: string } | null> {
+    const dateObj = new Date(date)
+    const minus7 = new Date(dateObj.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const plus7 = new Date(dateObj.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    const { data } = await supabase
+      .from('transactions')
+      .select('id, date, memo, order_no')
+      .eq('person', person)
+      .eq('amount', amount)
+      .not('order_no', 'is', null)
+      .eq('is_void', false)
+      .gte('date', minus7)
+      .lte('date', plus7)
+      .limit(1)
+    if (data && data.length > 0) return data[0]
+    return null
   }
 
   async function callApi(body: object): Promise<any> {
@@ -376,9 +394,23 @@ export default function ImportPage() {
       const sourceName = selectedAccount?.name || '不明'
       const sourceType = selectedAccount?.kind || 'card'
       for (const r of rows) {
+        let matchedId: string | null = null
+        let matchNote: string | null = null
+
+        // AMAZON行のマッチング
+        if (r.description.toUpperCase().includes('AMAZON')) {
+          const match = await findAmazonMatch(r.date, r.amount)
+          if (match) {
+            matchedId = match.id
+            matchNote = `候補: ${match.order_no} / ${match.memo}`
+          }
+        }
+
         await supabase.from('import_staging').insert({
           person, source_type: sourceType, source_name: sourceName,
           date: r.date, description: r.description, amount: r.amount, status: r.status,
+          matched_transaction_id: matchedId,
+          match_note: matchNote,
         })
       }
       alert(`${rows.length}件を保存しました`)
