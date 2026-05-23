@@ -1,6 +1,6 @@
-// v2.0.4 app/api/claude/route.ts text_cardをSonnet化・楽天OCRノイズ対応
+// v2.1.4 app/api/claude/route.ts card_imageタイプ追加
 /**
- * kakeicloud v2.0.4 | 2026/05/22
+ * kakeicloud v2.1.4 | 2026/05/22
  * kakeicloud-app/app/api/claude/route.ts
  */
 
@@ -224,6 +224,40 @@ ${text}
 - 「ご利用明細」「支払方法」「手数料」「ポイント」「リボ」等のヘッダー・フッター行は除外する
 - 返金・取消はamountをマイナスにせず除外する
 - 金額が次の行にある場合も正しく紐付けること`,
+        }],
+      })
+      const t = result.content[0].text
+      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
+      return NextResponse.json({ data: JSON.parse(clean) })
+
+    } else if (type === 'card_image') {
+      const result = await callClaude({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+            { type: 'text', text: `この画像はクレジットカードの利用明細ページです。
+取引明細を全件抽出してJSON配列のみを返してください。
+説明文・マークダウン記号は不要です。
+
+形式：
+[
+  {"date": "2025-10-26", "description": "利用先名", "amount": 1330},
+  ...
+]
+
+ルール：
+- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
+- amountは正の整数（円）。読み取れない場合は0にする
+- descriptionは利用先名をそのまま記載
+- 利用者欄（本人・家族）は無視して全件取得する
+- ヘッダー・フッター・合計・サマリー行は除外する
+- 取引明細（利用日・利用店名・利用金額）の行のみ抽出する
+- 返金・取消は除外する
+- ETCカード売上も取引として抽出する` },
+          ],
         }],
       })
       const t = result.content[0].text
