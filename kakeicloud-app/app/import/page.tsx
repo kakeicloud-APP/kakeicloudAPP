@@ -1,11 +1,11 @@
-// v2.1.6 app/import/page.tsx カード明細10スロットUI・iOS対応
+// v2.1.7 app/import/page.tsx 全ファイル入力をiOS対応オーバーレイ方式に変更
 /**
- * kakeicloud v2.1.6 | 2026/05/22
+ * kakeicloud v2.1.7 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { VERSION } from '../../lib/version'
 
@@ -106,8 +106,6 @@ export default function ImportPage() {
   const [imageProgress, setImageProgress] = useState('')
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
-  const fileRef = useRef<HTMLInputElement>(null)
-  const cameraRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchMasters() }, [person])
   useEffect(() => {
@@ -229,6 +227,7 @@ export default function ImportPage() {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    e.target.value = ''
     setLoading(true)
     setErrorMsg(null)
     try {
@@ -246,8 +245,6 @@ export default function ImportPage() {
       alert(msg)
     } finally {
       setLoading(false)
-      if (fileRef.current) fileRef.current.value = ''
-      if (cameraRef.current) cameraRef.current.value = ''
     }
   }
 
@@ -538,13 +535,22 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* CSV/PDFファイル選択（オーバーレイ方式） */}
       {!isReceiptTab && !isAmazonTab && (
-        <div style={{ marginBottom: '8px' }}>
-          <input ref={fileRef} type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile} style={{ display: 'none' }} />
-          <button onClick={() => fileRef.current?.click()} disabled={loading}
-            style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+        <div style={{ position: 'relative', marginBottom: '8px' }}>
+          <div style={{
+            width: '100%', padding: '14px',
+            background: loading ? '#9ca3af' : '#2563eb',
+            color: 'white', borderRadius: '8px',
+            textAlign: 'center', fontWeight: 'bold', fontSize: '15px',
+            boxSizing: 'border-box',
+          }}>
             {loading ? '解析中...' : `📁 ${tab}ファイルを選択`}
-          </button>
+          </div>
+          {!loading && (
+            <input type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+          )}
         </div>
       )}
 
@@ -555,61 +561,55 @@ export default function ImportPage() {
             📷 カード明細画像（ページごとにタップして追加）
           </div>
           {Array.from({ length: 10 }, (_, i) => (
-            <div key={i} style={{ marginBottom: '6px' }}>
-              <input
-                type="file"
-                id={`card-slot-${i}`}
-                accept="image/*"
-                style={{ display: 'none' }}
-                disabled={processingImages}
-                onChange={e => {
-                  if (e.target.files?.[0]) {
-                    const file = e.target.files[0]
-                    setCardImageSlots(prev => {
-                      const next = [...prev]
-                      next[i] = file
-                      return next
-                    })
-                  }
-                  e.target.value = ''
-                }}
-              />
-              <label
-                htmlFor={processingImages ? undefined : `card-slot-${i}`}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '10px 14px',
-                  background: cardImageSlots[i] ? '#f0fdf4' : 'white',
-                  border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
-                  borderRadius: '8px',
-                  cursor: processingImages ? 'default' : 'pointer',
-                  fontSize: '13px',
-                }}>
-                <span style={{ fontSize: '11px', color: '#6b7280', minWidth: '52px' }}>ページ{i + 1}</span>
+            <div key={i} style={{ position: 'relative', marginBottom: '6px' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '10px 14px',
+                background: cardImageSlots[i] ? '#f0fdf4' : 'white',
+                border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
+                borderRadius: '8px', fontSize: '13px',
+              }}>
+                <span style={{ fontSize: '11px', color: '#6b7280', minWidth: '52px', flexShrink: 0 }}>ページ{i + 1}</span>
                 {cardImageSlots[i] ? (
-                  <span style={{ color: '#16a34a', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ color: '#16a34a', fontWeight: 'bold', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     ✅ {cardImageSlots[i]!.name}
                   </span>
                 ) : (
-                  <span style={{ color: '#9ca3af' }}>タップして追加</span>
+                  <span style={{ color: '#9ca3af', flex: 1 }}>タップして追加</span>
                 )}
                 {cardImageSlots[i] && (
                   <button
                     onClick={e => {
-                      e.preventDefault()
+                      e.stopPropagation()
                       setCardImageSlots(prev => {
                         const next = [...prev]
                         next[i] = null
                         return next
                       })
                     }}
-                    style={{ marginLeft: 'auto', padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0 }}>
+                    style={{ padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0, zIndex: 1, position: 'relative' }}>
                     削除
                   </button>
                 )}
-              </label>
+              </div>
+              {!processingImages && (
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                  onChange={e => {
+                    if (e.target.files?.[0]) {
+                      const file = e.target.files[0]
+                      setCardImageSlots(prev => {
+                        const next = [...prev]
+                        next[i] = file
+                        return next
+                      })
+                    }
+                    e.target.value = ''
+                  }}
+                />
+              )}
             </div>
           ))}
           {filledSlotCount > 0 && (
@@ -627,36 +627,47 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* レシートタブ */}
       {isReceiptTab && !receiptData && (
         <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
-          <button onClick={() => cameraRef.current?.click()} disabled={loading}
-            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? 'AI読取中...' : '📷 カメラで撮影'}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
-          <button onClick={() => fileRef.current?.click()} disabled={loading}
-            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#0891b2', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? 'AI読取中...' : '🖼 写真を選択'}
-          </button>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <div style={{ padding: '14px', background: loading ? '#9ca3af' : '#16a34a', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
+              {loading ? 'AI読取中...' : '📷 カメラで撮影'}
+            </div>
+            {!loading && <input type="file" accept="image/*" capture="environment" onChange={handleFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />}
+          </div>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <div style={{ padding: '14px', background: loading ? '#9ca3af' : '#0891b2', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
+              {loading ? 'AI読取中...' : '🖼 写真を選択'}
+            </div>
+            {!loading && <input type="file" accept="image/*" onChange={handleFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />}
+          </div>
         </div>
       )}
 
+      {/* Amazonタブ */}
       {isAmazonTab && !amazonData && (
         <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
-          <button onClick={() => cameraRef.current?.click()} disabled={loading}
-            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? 'AI読取中...' : '📷 カメラで撮影'}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
-          <button onClick={() => fileRef.current?.click()} disabled={loading}
-            style={{ flex: 1, padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {loading ? 'AI読取中...' : '🖼 スクショを選択'}
-          </button>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <div style={{ padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
+              {loading ? 'AI読取中...' : '📷 カメラで撮影'}
+            </div>
+            {!loading && <input type="file" accept="image/*" capture="environment" onChange={handleFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />}
+          </div>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <div style={{ padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
+              {loading ? 'AI読取中...' : '🖼 スクショを選択'}
+            </div>
+            {!loading && <input type="file" accept="image/*" onChange={handleFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />}
+          </div>
         </div>
       )}
 
+      {/* テキスト入力エリア */}
       {showTextReadButton && !receiptData && !amazonData && (
         <div style={{ marginBottom: '16px' }}>
           <button onClick={() => setShowTextArea(!showTextArea)}
