@@ -1,6 +1,6 @@
-// v2.1.8 app/page.tsx 編集モーダルに支払方法追加
+// v2.2.4 app/page.tsx カード照合リンク追加
 /**
- * kakeicloud v2.1.8 | 2026/05/22
+ * kakeicloud v2.2.4 | 2026/05/22
  * kakeicloud-app/app/page.tsx
  */
 
@@ -188,8 +188,7 @@ export default function Home() {
     setLoading(true)
     const { data } = await supabase
       .from("transactions").select("*")
-      .eq("person", person)
-      .eq("year", selectedYear)
+      .eq("person", person).eq("year", selectedYear)
       .order("date", { ascending: true })
     setRows(data || [])
     setLoading(false)
@@ -274,13 +273,10 @@ export default function Home() {
   async function generateVoucherNo(p: string, year: number): Promise<string> {
     const prefix = p === "hiroshi" ? "H" : "W"
     const { data } = await supabase
-      .from("transactions")
-      .select("voucher_no")
-      .eq("person", p)
-      .eq("year", year)
+      .from("transactions").select("voucher_no")
+      .eq("person", p).eq("year", year)
       .not("voucher_no", "is", null)
-      .order("voucher_no", { ascending: false })
-      .limit(1)
+      .order("voucher_no", { ascending: false }).limit(1)
     let nextNum = 1
     if (data && data.length > 0 && data[0].voucher_no) {
       const parts = data[0].voucher_no.split("-")
@@ -304,8 +300,7 @@ export default function Home() {
         .from("transactions").select("voucher_no")
         .eq("person", person).eq("year", year)
         .not("voucher_no", "is", null)
-        .order("voucher_no", { ascending: false })
-        .limit(1)
+        .order("voucher_no", { ascending: false }).limit(1)
       let counter = 1
       if (existing && existing.length > 0 && existing[0].voucher_no) {
         counter = parseInt(existing[0].voucher_no.split("-")[1]) + 1
@@ -483,6 +478,8 @@ export default function Home() {
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>設定</a>
         <a href="/import"
           style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>取込</a>
+        <a href="/card-summary"
+          style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>💳 カード照合</a>
         <a href="/staging"
           style={{ padding: "8px 14px", background: stagingCount > 0 ? "#f97316" : "#f3f4f6", border: `1px solid ${stagingCount > 0 ? "#f97316" : "#e5e7eb"}`, borderRadius: "6px", textDecoration: "none", color: stagingCount > 0 ? "white" : "#374151", fontSize: "14px", fontWeight: stagingCount > 0 ? "bold" : "normal" }}>
           📥 取込承認{stagingCount > 0 ? `（${stagingCount}件）` : ""}
@@ -522,11 +519,6 @@ export default function Home() {
             )}
           </button>
         ))}
-        {filterKind !== "all" && (
-          <span style={{ padding: "6px 8px", fontSize: "12px", color: "#6b7280", alignSelf: "center" }}>
-            {displayRows.filter(r => !r.is_void).length}件表示中
-          </span>
-        )}
       </div>
 
       {noVoucherCount > 0 && (
@@ -755,7 +747,7 @@ export default function Home() {
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
               </div>
               <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考</label>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考（印刷されません）</label>
                 <input value={newNote} onChange={e => setNewNote(e.target.value)}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
               </div>
@@ -918,7 +910,7 @@ export default function Home() {
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
               <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考</label>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>備考（印刷されません）</label>
                 <input value={editing.note || ""} onChange={e => setEditing({ ...editing, note: e.target.value })}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
