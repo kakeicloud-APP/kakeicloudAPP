@@ -1,6 +1,6 @@
-// v2.1.5 app/import/page.tsx カード明細画像キューUI追加
+// v2.1.6 app/import/page.tsx カード明細10スロットUI・iOS対応
 /**
- * kakeicloud v2.1.5 | 2026/05/22
+ * kakeicloud v2.1.6 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -101,14 +101,13 @@ export default function ImportPage() {
   const [textInput, setTextInput] = useState('')
   const [showTextArea, setShowTextArea] = useState(false)
   const [currentImportId, setCurrentImportId] = useState<string | null>(null)
-  const [cardImages, setCardImages] = useState<File[]>([])
+  const [cardImageSlots, setCardImageSlots] = useState<(File | null)[]>(Array(10).fill(null))
   const [processingImages, setProcessingImages] = useState(false)
   const [imageProgress, setImageProgress] = useState('')
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
-  const cardImageRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchMasters() }, [person])
   useEffect(() => {
@@ -119,7 +118,7 @@ export default function ImportPage() {
     setRows([])
     setErrorMsg(null)
     setCurrentImportId(null)
-    setCardImages([])
+    setCardImageSlots(Array(10).fill(null))
     setImageProgress('')
   }, [tab])
 
@@ -253,18 +252,19 @@ export default function ImportPage() {
   }
 
   async function handleCardImages() {
-    if (cardImages.length === 0) { alert('画像を追加してください'); return }
+    const filledSlots = cardImageSlots.filter(s => s !== null) as File[]
+    if (filledSlots.length === 0) { alert('画像を追加してください'); return }
     setProcessingImages(true)
     setErrorMsg(null)
     let allRows: ImportRow[] = [...rows]
     try {
-      for (let i = 0; i < cardImages.length; i++) {
-        setImageProgress(`${i + 1}/${cardImages.length}ページ処理中...`)
-        const base64 = await fileToBase64(cardImages[i])
+      for (let i = 0; i < filledSlots.length; i++) {
+        setImageProgress(`${i + 1}/${filledSlots.length}ページ処理中...`)
+        const base64 = await fileToBase64(filledSlots[i])
         const json = await callApi({
           type: 'card_image',
           imageBase64: base64,
-          mediaType: cardImages[i].type || 'image/jpeg',
+          mediaType: filledSlots[i].type || 'image/jpeg',
         })
         if (!Array.isArray(json.data)) continue
         const parsed: ImportRow[] = json.data.map((d: any, idx: number) => ({
@@ -277,7 +277,7 @@ export default function ImportPage() {
         allRows = [...allRows, ...applyRules(parsed)]
       }
       setRows(allRows)
-      setCardImages([])
+      setCardImageSlots(Array(10).fill(null))
       setImageProgress('')
       if (allRows.length === 0) alert('data not found')
     } catch (error: any) {
@@ -497,6 +497,7 @@ export default function ImportPage() {
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
   const showTextReadButton = tab === 'レシート' || tab === 'Amazon' || tab === 'カードCSV' || tab === '弥生CSV' || tab === 'PDF'
+  const filledSlotCount = cardImageSlots.filter(s => s !== null).length
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
@@ -547,39 +548,80 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* カードCSV：画像取込ボタン（2段目） */}
+      {/* カードCSV：10スロット画像取込 */}
       {tab === 'カードCSV' && (
-        <div style={{ marginBottom: '12px' }}>
-          <input ref={cardImageRef} type="file" accept="image/*"
-            onChange={e => {
-              if (e.target.files) setCardImages(prev => [...prev, ...Array.from(e.target.files!)])
-              if (cardImageRef.current) cardImageRef.current.value = ''
-            }}
-            style={{ display: 'none' }} />
-          <button onClick={() => cardImageRef.current?.click()} disabled={processingImages}
-            style={{ width: '100%', padding: '14px', background: processingImages ? '#9ca3af' : '#0891b2', color: 'white', border: 'none', borderRadius: '8px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            📷 カード明細画像を追加
-          </button>
-          {cardImages.length > 0 && (
-            <div style={{ marginTop: '8px', background: '#f0f9ff', border: '1px solid #0891b2', borderRadius: '8px', padding: '10px 12px' }}>
-              <div style={{ fontSize: '12px', color: '#0369a1', marginBottom: '4px', fontWeight: 'bold' }}>
-                追加済み：{cardImages.length}枚
-              </div>
-              <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px', wordBreak: 'break-all' }}>
-                {cardImages.map((f, i) => (
-                  <span key={i} style={{ display: 'inline-block', marginRight: '6px', marginBottom: '2px' }}>📄{f.name}</span>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button onClick={handleCardImages} disabled={processingImages}
-                  style={{ flex: 1, padding: '12px', background: processingImages ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
-                  {processingImages ? imageProgress || '処理中...' : `🤖 ${cardImages.length}枚を順番に読み取る`}
-                </button>
-                <button onClick={() => setCardImages([])} disabled={processingImages}
-                  style={{ padding: '12px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
-                  クリア
-                </button>
-              </div>
+        <div style={{ marginBottom: '12px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px' }}>
+          <div style={{ fontSize: '12px', color: '#374151', marginBottom: '10px', fontWeight: 'bold' }}>
+            📷 カード明細画像（ページごとにタップして追加）
+          </div>
+          {Array.from({ length: 10 }, (_, i) => (
+            <div key={i} style={{ marginBottom: '6px' }}>
+              <input
+                type="file"
+                id={`card-slot-${i}`}
+                accept="image/*"
+                style={{ display: 'none' }}
+                disabled={processingImages}
+                onChange={e => {
+                  if (e.target.files?.[0]) {
+                    const file = e.target.files[0]
+                    setCardImageSlots(prev => {
+                      const next = [...prev]
+                      next[i] = file
+                      return next
+                    })
+                  }
+                  e.target.value = ''
+                }}
+              />
+              <label
+                htmlFor={processingImages ? undefined : `card-slot-${i}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: '10px 14px',
+                  background: cardImageSlots[i] ? '#f0fdf4' : 'white',
+                  border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
+                  borderRadius: '8px',
+                  cursor: processingImages ? 'default' : 'pointer',
+                  fontSize: '13px',
+                }}>
+                <span style={{ fontSize: '11px', color: '#6b7280', minWidth: '52px' }}>ページ{i + 1}</span>
+                {cardImageSlots[i] ? (
+                  <span style={{ color: '#16a34a', fontWeight: 'bold', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    ✅ {cardImageSlots[i]!.name}
+                  </span>
+                ) : (
+                  <span style={{ color: '#9ca3af' }}>タップして追加</span>
+                )}
+                {cardImageSlots[i] && (
+                  <button
+                    onClick={e => {
+                      e.preventDefault()
+                      setCardImageSlots(prev => {
+                        const next = [...prev]
+                        next[i] = null
+                        return next
+                      })
+                    }}
+                    style={{ marginLeft: 'auto', padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0 }}>
+                    削除
+                  </button>
+                )}
+              </label>
+            </div>
+          ))}
+          {filledSlotCount > 0 && (
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+              <button onClick={handleCardImages} disabled={processingImages}
+                style={{ flex: 1, padding: '13px', background: processingImages ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+                {processingImages ? imageProgress || '処理中...' : `🤖 ${filledSlotCount}枚を順番に読み取る`}
+              </button>
+              <button onClick={() => setCardImageSlots(Array(10).fill(null))} disabled={processingImages}
+                style={{ padding: '13px 16px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                クリア
+              </button>
             </div>
           )}
         </div>
