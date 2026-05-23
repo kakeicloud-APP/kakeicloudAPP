@@ -1,6 +1,6 @@
-// v2.1.1 app/page.tsx sub_account追加（開業費償却の下位科目）
+// v2.1.8 app/page.tsx 編集モーダルに支払方法追加
 /**
- * kakeicloud v2.1.1 | 2026/05/22
+ * kakeicloud v2.1.8 | 2026/05/22
  * kakeicloud-app/app/page.tsx
  */
 
@@ -113,6 +113,16 @@ function inferKind(account: string): string {
   return "sonota"
 }
 
+function inferPaymentKind(method: string, paymentAccount?: string, accounts?: PaymentAccount[]): string {
+  if (method === "現金") return "genkin"
+  if (method === "普通預金") return "bank"
+  if (paymentAccount && accounts) {
+    const found = accounts.find(a => a.name === paymentAccount)
+    if (found?.kind === "電子マネー") return "emoney"
+  }
+  return "card"
+}
+
 function getVoucherDisplay(r: Transaction): string[] {
   if (r.account === "医療費") return ["【別途領収書保管】", "医療費"]
   if (r.account === "寄附金") return ["【寄附金受領証保管】"]
@@ -136,6 +146,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [editKind, setEditKind] = useState("keiji")
+  const [editPaymentKind, setEditPaymentKind] = useState("card")
   const [showForm, setShowForm] = useState(false)
   const [savedVoucherNo, setSavedVoucherNo] = useState<string | null>(null)
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -363,7 +374,8 @@ export default function Home() {
       amount: editing.amount,
       tax_rate: editing.tax_rate, tax_amount: editing.tax_amount,
       invoice_no: editing.invoice_no || null,
-      method: editing.method, payment_account: editing.payment_account || null,
+      method: KIND_TO_METHOD[editPaymentKind],
+      payment_account: editPaymentKind !== "genkin" ? editing.payment_account || null : null,
       memo: editing.memo, note: editing.note, order_no: editing.order_no || null,
       has_receipt: editing.has_receipt, person: editing.person,
     }).eq("id", editing.id)
@@ -607,7 +619,11 @@ export default function Home() {
                       style={{ marginRight: "4px", padding: "2px 8px", background: "#0891b2", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>🖨</button>
                   )}
                   {!r.is_void && (
-                    <button onClick={() => { setEditing(r); setEditKind(inferKind(r.account)) }}
+                    <button onClick={() => {
+                      setEditing(r)
+                      setEditKind(inferKind(r.account))
+                      setEditPaymentKind(inferPaymentKind(r.method, r.payment_account, paymentAccounts))
+                    }}
                       style={{ marginRight: "4px", padding: "2px 8px", background: "#2563eb", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px" }}>編集</button>
                   )}
                   <button onClick={() => voidRow(r.id, r.is_void)}
@@ -842,6 +858,39 @@ export default function Home() {
                 <input type="number" value={editing.tax_amount ?? 0} onChange={e => setEditing({ ...editing, tax_amount: parseInt(e.target.value) || 0 })}
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>支払種別</label>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {PAYMENT_KINDS.map(k => (
+                    <button key={k.key}
+                      onClick={() => {
+                        setEditPaymentKind(k.key)
+                        setEditing({ ...editing, payment_account: filteredPaymentAccounts(k.key)[0]?.name || "" })
+                      }}
+                      style={{ padding: "6px 12px", background: editPaymentKind === k.key ? "#0891b2" : "#e5e7eb", color: editPaymentKind === k.key ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {editPaymentKind !== "genkin" && (
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>口座名</label>
+                  {filteredPaymentAccounts(editPaymentKind).length > 0 ? (
+                    <select value={editing.payment_account || ""} onChange={e => setEditing({ ...editing, payment_account: e.target.value })}
+                      style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
+                      <option value="">選択してください</option>
+                      {filteredPaymentAccounts(editPaymentKind).map(a => (
+                        <option key={a.id} value={a.name}>{a.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div style={{ padding: "8px", background: "#fffbeb", border: "1px solid #f59e0b", borderRadius: "6px", fontSize: "12px", color: "#92400e" }}>
+                      設定から口座を登録してください
+                    </div>
+                  )}
+                </div>
+              )}
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>証憑</label>
                 <div style={{ display: "flex", gap: "8px" }}>
