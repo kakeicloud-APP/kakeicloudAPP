@@ -1,6 +1,6 @@
-// v2.1.2 app/import/page.tsx saveToStagingにAmazonマッチング追加
+// v2.1.5 app/import/page.tsx カード明細画像キューUI追加
 /**
- * kakeicloud v2.1.2 | 2026/05/22
+ * kakeicloud v2.1.5 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -101,10 +101,14 @@ export default function ImportPage() {
   const [textInput, setTextInput] = useState('')
   const [showTextArea, setShowTextArea] = useState(false)
   const [currentImportId, setCurrentImportId] = useState<string | null>(null)
+  const [cardImages, setCardImages] = useState<File[]>([])
+  const [processingImages, setProcessingImages] = useState(false)
+  const [imageProgress, setImageProgress] = useState('')
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
+  const cardImageRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchMasters() }, [person])
   useEffect(() => {
@@ -115,6 +119,8 @@ export default function ImportPage() {
     setRows([])
     setErrorMsg(null)
     setCurrentImportId(null)
+    setCardImages([])
+    setImageProgress('')
   }, [tab])
 
   async function fetchMasters() {
@@ -243,6 +249,44 @@ export default function ImportPage() {
       setLoading(false)
       if (fileRef.current) fileRef.current.value = ''
       if (cameraRef.current) cameraRef.current.value = ''
+    }
+  }
+
+  async function handleCardImages() {
+    if (cardImages.length === 0) { alert('画像を追加してください'); return }
+    setProcessingImages(true)
+    setErrorMsg(null)
+    let allRows: ImportRow[] = [...rows]
+    try {
+      for (let i = 0; i < cardImages.length; i++) {
+        setImageProgress(`${i + 1}/${cardImages.length}ページ処理中...`)
+        const base64 = await fileToBase64(cardImages[i])
+        const json = await callApi({
+          type: 'card_image',
+          imageBase64: base64,
+          mediaType: cardImages[i].type || 'image/jpeg',
+        })
+        if (!Array.isArray(json.data)) continue
+        const parsed: ImportRow[] = json.data.map((d: any, idx: number) => ({
+          id: `ci-${i}-${idx}`,
+          date: d.date || '',
+          description: d.description || '',
+          amount: Math.abs(d.amount || 0),
+          status: 'pending' as const,
+        }))
+        allRows = [...allRows, ...applyRules(parsed)]
+      }
+      setRows(allRows)
+      setCardImages([])
+      setImageProgress('')
+      if (allRows.length === 0) alert('data not found')
+    } catch (error: any) {
+      const msg = error.message || 'error'
+      setErrorMsg(msg)
+      alert(msg)
+    } finally {
+      setProcessingImages(false)
+      setImageProgress('')
     }
   }
 
@@ -396,8 +440,6 @@ export default function ImportPage() {
       for (const r of rows) {
         let matchedId: string | null = null
         let matchNote: string | null = null
-
-        // AMAZON行のマッチング
         if (r.description.toUpperCase().includes('AMAZON')) {
           const match = await findAmazonMatch(r.date, r.amount)
           if (match) {
@@ -405,7 +447,6 @@ export default function ImportPage() {
             matchNote = `候補: ${match.order_no} / ${match.memo}`
           }
         }
-
         await supabase.from('import_staging').insert({
           person, source_type: sourceType, source_name: sourceName,
           date: r.date, description: r.description, amount: r.amount, status: r.status,
@@ -497,12 +538,50 @@ export default function ImportPage() {
       )}
 
       {!isReceiptTab && !isAmazonTab && (
-        <div style={{ marginBottom: '12px' }}>
+        <div style={{ marginBottom: '8px' }}>
           <input ref={fileRef} type="file" accept={tab === 'PDF' ? '.pdf' : '.csv'} onChange={handleFile} style={{ display: 'none' }} />
           <button onClick={() => fileRef.current?.click()} disabled={loading}
             style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: loading ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
             {loading ? '解析中...' : `📁 ${tab}ファイルを選択`}
           </button>
+        </div>
+      )}
+
+      {/* カードCSV：画像取込ボタン（2段目） */}
+      {tab === 'カードCSV' && (
+        <div style={{ marginBottom: '12px' }}>
+          <input ref={cardImageRef} type="file" accept="image/*"
+            onChange={e => {
+              if (e.target.files) setCardImages(prev => [...prev, ...Array.from(e.target.files!)])
+              if (cardImageRef.current) cardImageRef.current.value = ''
+            }}
+            style={{ display: 'none' }} />
+          <button onClick={() => cardImageRef.current?.click()} disabled={processingImages}
+            style={{ width: '100%', padding: '14px', background: processingImages ? '#9ca3af' : '#0891b2', color: 'white', border: 'none', borderRadius: '8px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+            📷 カード明細画像を追加
+          </button>
+          {cardImages.length > 0 && (
+            <div style={{ marginTop: '8px', background: '#f0f9ff', border: '1px solid #0891b2', borderRadius: '8px', padding: '10px 12px' }}>
+              <div style={{ fontSize: '12px', color: '#0369a1', marginBottom: '4px', fontWeight: 'bold' }}>
+                追加済み：{cardImages.length}枚
+              </div>
+              <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '8px', wordBreak: 'break-all' }}>
+                {cardImages.map((f, i) => (
+                  <span key={i} style={{ display: 'inline-block', marginRight: '6px', marginBottom: '2px' }}>📄{f.name}</span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={handleCardImages} disabled={processingImages}
+                  style={{ flex: 1, padding: '12px', background: processingImages ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                  {processingImages ? imageProgress || '処理中...' : `🤖 ${cardImages.length}枚を順番に読み取る`}
+                </button>
+                <button onClick={() => setCardImages([])} disabled={processingImages}
+                  style={{ padding: '12px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                  クリア
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
