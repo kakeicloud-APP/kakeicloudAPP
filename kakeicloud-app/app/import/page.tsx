@@ -1,6 +1,6 @@
-// v2.2.0 app/import/page.tsx カード選択ボタン化・Amazon memo/note入れ替え
+// v2.2.2 app/import/page.tsx サマリースロット追加
 /**
- * kakeicloud v2.2.0 | 2026/05/22
+ * kakeicloud v2.2.2 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -16,6 +16,7 @@ type ImportRow = {
   amount: number
   status: 'keiji' | 'kataji' | 'confirm' | 'pending'
   account?: string
+  person?: string
 }
 
 type ClassificationRule = {
@@ -57,6 +58,14 @@ type AmazonData = {
   account: string
 }
 
+type SummaryData = {
+  billing_month: string
+  billing_total: number
+  honcard_total: number
+  kazoku_total: number
+  etc_total: number
+}
+
 type ReceiptKind = 'keiji' | 'iryo' | 'furusato' | 'kaji'
 
 const TABS = ['弥生CSV', 'カードCSV', 'PDF', 'レシート', 'Amazon']
@@ -71,11 +80,9 @@ const KEIJI_ACCOUNTS = [
 const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {
   keiji: '経費', iryo: '医療費', furusato: 'ふるさと納税', kaji: '家事',
 }
-
 const KIND_TO_ACCOUNT: Record<ReceiptKind, string> = {
   keiji: '', iryo: '医療費', furusato: '寄附金', kaji: '家事',
 }
-
 const KIND_TO_TAX_TYPE: Record<ReceiptKind, string> = {
   keiji: '課税仕入', iryo: '対象外', furusato: '対象外', kaji: '対象外',
 }
@@ -104,6 +111,10 @@ export default function ImportPage() {
   const [cardImageSlots, setCardImageSlots] = useState<(File | null)[]>(Array(10).fill(null))
   const [processingImages, setProcessingImages] = useState(false)
   const [imageProgress, setImageProgress] = useState('')
+  const [summarySlot, setSummarySlot] = useState<File | null>(null)
+  const [summaryData, setSummaryData] = useState<SummaryData | null>(null)
+  const [summaryImportId, setSummaryImportId] = useState<string | null>(null)
+  const [processingSummary, setProcessingSummary] = useState(false)
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
 
@@ -118,6 +129,9 @@ export default function ImportPage() {
     setCurrentImportId(null)
     setCardImageSlots(Array(10).fill(null))
     setImageProgress('')
+    setSummarySlot(null)
+    setSummaryData(null)
+    setSummaryImportId(null)
   }, [tab])
 
   async function fetchMasters() {
@@ -169,36 +183,6 @@ export default function ImportPage() {
     }).filter(Boolean) as ImportRow[]
   }
 
-  async function saveToCardImports(rawText: string, cardType: string, billingMonth: string): Promise<string | null> {
-    try {
-      const { data, error } = await supabase.from('card_imports').insert({
-        card_type: cardType, billing_month: billingMonth, raw_text: rawText,
-      }).select('id').single()
-      if (error) { console.error('card_imports save error:', error); return null }
-      return data?.id || null
-    } catch (e) {
-      console.error('card_imports error:', e); return null
-    }
-  }
-
-  async function findAmazonMatch(date: string, amount: number): Promise<{ id: string; order_no: string; memo: string } | null> {
-    const dateObj = new Date(date)
-    const minus7 = new Date(dateObj.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    const plus7 = new Date(dateObj.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    const { data } = await supabase
-      .from('transactions')
-      .select('id, date, memo, order_no')
-      .eq('person', person)
-      .eq('amount', amount)
-      .not('order_no', 'is', null)
-      .eq('is_void', false)
-      .gte('date', minus7)
-      .lte('date', plus7)
-      .limit(1)
-    if (data && data.length > 0) return data[0]
-    return null
-  }
-
   async function callApi(body: object): Promise<any> {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 25000)
@@ -222,6 +206,43 @@ export default function ImportPage() {
     try { json = JSON.parse(text) } catch { throw new Error(`parse error: ${text.slice(0, 200)}`) }
     if (json.error) throw new Error(json.error)
     return json
+  }
+
+  async function handleSummaryImport() {
+    if (!summarySlot) return
+    setProcessingSummary(true)
+    setErrorMsg(null)
+    try {
+      const base64 = await fileToBase64(summarySlot)
+      const json = await callApi({
+        type: 'card_summary',
+        imageBase64: base64,
+        mediaType: summarySlot.type || 'image/jpeg',
+      })
+      if (!json.data) throw new Error('no data')
+      const sd: SummaryData = json.data
+      setSummaryData(sd)
+      const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
+      const cardType = selectedAccount?.name || '不明'
+      const { data: ci, error } = await supabase.from('card_imports').insert({
+        card_type: cardType,
+        billing_month: sd.billing_month,
+        raw_text: JSON.stringify(sd),
+        is_summary: true,
+        billing_total: sd.billing_total,
+        honcard_total: sd.honcard_total,
+        kazoku_total: sd.kazoku_total,
+        etc_total: sd.etc_total,
+      }).select('id').single()
+      if (error) throw new Error(error.message)
+      setSummaryImportId(ci.id)
+    } catch (error: any) {
+      const msg = error.message || 'error'
+      setErrorMsg(msg)
+      alert(msg)
+    } finally {
+      setProcessingSummary(false)
+    }
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -270,6 +291,7 @@ export default function ImportPage() {
           description: d.description || '',
           amount: Math.abs(d.amount || 0),
           status: 'pending' as const,
+          person: d.person || 'hiroshi',
         }))
         allRows = [...allRows, ...applyRules(parsed)]
       }
@@ -316,11 +338,13 @@ export default function ImportPage() {
         setShowTextArea(false)
         if (parsed.length === 0) { alert('data not found'); return }
         const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
-        const suffix = tab === 'PDF' ? 'PDF' : 'CSV'
-        const cardType = `${selectedAccount?.name || '不明'} (${suffix})`
+        const cardType = `${selectedAccount?.name || '不明'} (テキスト)`
         const billingMonth = parsed[0]?.date.slice(0, 7) || new Date().toISOString().slice(0, 7)
-        const importId = await saveToCardImports(textInput, cardType, billingMonth)
-        if (importId) setCurrentImportId(importId)
+        const { data: ci } = await supabase.from('card_imports').insert({
+          card_type: cardType, billing_month: billingMonth,
+          raw_text: textInput, is_summary: false,
+        }).select('id').single()
+        if (ci) setCurrentImportId(ci.id)
       }
     } catch (error: any) {
       const msg = error.message || 'error'
@@ -431,6 +455,10 @@ export default function ImportPage() {
 
   async function saveToStaging() {
     if (rows.length === 0) { alert('データがありません'); return }
+    if (!summaryImportId) {
+      const go = confirm('サマリーページが未取込です。このまま保存しますか？')
+      if (!go) return
+    }
     if (!confirm(`${rows.length}件をstagingに保存しますか？`)) return
     setSaving(true)
     try {
@@ -438,20 +466,15 @@ export default function ImportPage() {
       const sourceName = selectedAccount?.name || '不明'
       const sourceType = selectedAccount?.kind || 'card'
       for (const r of rows) {
-        let matchedId: string | null = null
-        let matchNote: string | null = null
-        if (r.description.toUpperCase().includes('AMAZON')) {
-          const match = await findAmazonMatch(r.date, r.amount)
-          if (match) {
-            matchedId = match.id
-            matchNote = `候補: ${match.order_no} / ${match.memo}`
-          }
-        }
         await supabase.from('import_staging').insert({
-          person, source_type: sourceType, source_name: sourceName,
-          date: r.date, description: r.description, amount: r.amount, status: r.status,
-          matched_transaction_id: matchedId,
-          match_note: matchNote,
+          person: r.person || person,
+          source_type: sourceType,
+          source_name: sourceName,
+          date: r.date,
+          description: r.description,
+          amount: r.amount,
+          status: r.status,
+          card_import_id: summaryImportId || null,
         })
       }
       alert(`${rows.length}件を保存しました`)
@@ -496,7 +519,6 @@ export default function ImportPage() {
   const isReceiptTab = tab === 'レシート'
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
-  const showTextReadButton = !isReceiptTab || !receiptData
   const filledSlotCount = cardImageSlots.filter(s => s !== null).length
 
   return (
@@ -528,7 +550,7 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {/* カード選択ボタン（大きく・見落とし防止） */}
+      {/* カード選択ボタン */}
       {isPdfOrCsv && paymentAccounts.length > 0 && (
         <div style={{ marginBottom: '16px' }}>
           <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>取込元口座</div>
@@ -540,10 +562,8 @@ export default function ImportPage() {
                   background: selectedAccountId === a.id ? '#2563eb' : '#f3f4f6',
                   color: selectedAccountId === a.id ? 'white' : '#374151',
                   border: `2px solid ${selectedAccountId === a.id ? '#2563eb' : '#e5e7eb'}`,
-                  borderRadius: '10px',
-                  cursor: 'pointer',
-                  fontSize: '15px',
-                  fontWeight: selectedAccountId === a.id ? 'bold' : 'normal',
+                  borderRadius: '10px', cursor: 'pointer',
+                  fontSize: '15px', fontWeight: selectedAccountId === a.id ? 'bold' : 'normal',
                   minWidth: '140px',
                 }}>
                 💳 {a.name}
@@ -556,13 +576,7 @@ export default function ImportPage() {
       {/* CSV/PDFファイル選択 */}
       {!isReceiptTab && !isAmazonTab && (
         <div style={{ position: 'relative', marginBottom: '8px' }}>
-          <div style={{
-            width: '100%', padding: '14px',
-            background: loading ? '#9ca3af' : '#2563eb',
-            color: 'white', borderRadius: '8px',
-            textAlign: 'center', fontWeight: 'bold', fontSize: '15px',
-            boxSizing: 'border-box',
-          }}>
+          <div style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px', boxSizing: 'border-box' }}>
             {loading ? '解析中...' : `📁 ${tab}ファイルを選択`}
           </div>
           {!loading && (
@@ -572,65 +586,124 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* カードCSV：10スロット画像取込 */}
+      {/* カードCSV：サマリー＋10スロット */}
       {tab === 'カードCSV' && (
-        <div style={{ marginBottom: '12px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px' }}>
-          <div style={{ fontSize: '12px', color: '#374151', marginBottom: '10px', fontWeight: 'bold' }}>
-            📷 カード明細画像（ページごとにタップして追加）
-          </div>
-          {Array.from({ length: 10 }, (_, i) => (
-            <div key={i} style={{ position: 'relative', marginBottom: '6px' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
-                padding: '10px 14px',
-                background: cardImageSlots[i] ? '#f0fdf4' : 'white',
-                border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
-                borderRadius: '8px', fontSize: '13px',
-              }}>
-                <span style={{ fontSize: '11px', color: '#6b7280', minWidth: '52px', flexShrink: 0 }}>ページ{i + 1}</span>
-                {cardImageSlots[i] ? (
-                  <span style={{ color: '#16a34a', fontWeight: 'bold', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    ✅ {cardImageSlots[i]!.name}
-                  </span>
-                ) : (
-                  <span style={{ color: '#9ca3af', flex: 1 }}>タップして追加</span>
-                )}
-                {cardImageSlots[i] && (
-                  <button onClick={e => {
-                    e.stopPropagation()
-                    setCardImageSlots(prev => { const next = [...prev]; next[i] = null; return next })
-                  }}
-                    style={{ padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0, zIndex: 1, position: 'relative' }}>
-                    削除
-                  </button>
+        <div style={{ marginBottom: '12px' }}>
+
+          {/* ステップ1：サマリースロット */}
+          <div style={{ marginBottom: '12px', background: '#fffbeb', border: `2px solid ${summaryData ? '#16a34a' : '#f59e0b'}`, borderRadius: '10px', padding: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#92400e', marginBottom: '8px' }}>
+              ステップ1　サマリーページ（請求合計）
+            </div>
+
+            {summaryData ? (
+              <div style={{ background: 'white', borderRadius: '8px', padding: '10px', fontSize: '13px' }}>
+                <div style={{ color: '#16a34a', fontWeight: 'bold', marginBottom: '6px' }}>✅ 読み取り完了</div>
+                <div style={{ marginBottom: '2px' }}>請求月：<strong>{summaryData.billing_month}</strong></div>
+                <div style={{ marginBottom: '2px' }}>請求合計：<strong>¥{summaryData.billing_total.toLocaleString()}</strong></div>
+                <div style={{ marginBottom: '2px', color: '#2563eb' }}>本カード（妻）：¥{summaryData.honcard_total.toLocaleString()}</div>
+                <div style={{ marginBottom: '2px', color: '#7c3aed' }}>家族カード（廣！）：¥{summaryData.kazoku_total.toLocaleString()}</div>
+                {summaryData.etc_total > 0 && <div style={{ marginBottom: '2px', color: '#6b7280' }}>ETC：¥{summaryData.etc_total.toLocaleString()}</div>}
+                <button onClick={() => { setSummaryData(null); setSummarySlot(null); setSummaryImportId(null) }}
+                  style={{ marginTop: '8px', padding: '4px 12px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', color: '#dc2626' }}>
+                  やり直し
+                </button>
+              </div>
+            ) : (
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  padding: '12px 16px',
+                  background: summarySlot ? '#f0fdf4' : 'white',
+                  border: `1px solid ${summarySlot ? '#16a34a' : '#d1d5db'}`,
+                  borderRadius: '8px', fontSize: '13px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+                }}>
+                  {summarySlot ? (
+                    <>
+                      <span style={{ color: '#16a34a', fontWeight: 'bold', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        ✅ {summarySlot.name}
+                      </span>
+                      <button onClick={handleSummaryImport} disabled={processingSummary}
+                        style={{ padding: '8px 16px', background: processingSummary ? '#9ca3af' : '#f59e0b', color: 'white', border: 'none', borderRadius: '6px', cursor: processingSummary ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px', flexShrink: 0, zIndex: 1, position: 'relative' }}>
+                        {processingSummary ? '読取中...' : '🤖 読み取る'}
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ color: '#9ca3af' }}>📊 サマリーページをタップして追加</span>
+                  )}
+                </div>
+                {!processingSummary && !summarySlot && (
+                  <input type="file" accept="image/*"
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                    onChange={e => {
+                      if (e.target.files?.[0]) setSummarySlot(e.target.files[0])
+                      e.target.value = ''
+                    }}
+                  />
                 )}
               </div>
-              {!processingImages && (
-                <input type="file" accept="image/*"
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
-                  onChange={e => {
-                    if (e.target.files?.[0]) {
-                      const file = e.target.files[0]
-                      setCardImageSlots(prev => { const next = [...prev]; next[i] = file; return next })
-                    }
-                    e.target.value = ''
-                  }}
-                />
-              )}
+            )}
+          </div>
+
+          {/* ステップ2：明細スロット */}
+          <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px' }}>
+            <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '10px' }}>
+              ステップ2　明細ページ（ページごとにタップして追加）
             </div>
-          ))}
-          {filledSlotCount > 0 && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-              <button onClick={handleCardImages} disabled={processingImages}
-                style={{ flex: 1, padding: '13px', background: processingImages ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
-                {processingImages ? imageProgress || '処理中...' : `🤖 ${filledSlotCount}枚を順番に読み取る`}
-              </button>
-              <button onClick={() => setCardImageSlots(Array(10).fill(null))} disabled={processingImages}
-                style={{ padding: '13px 16px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
-                クリア
-              </button>
-            </div>
-          )}
+            {Array.from({ length: 10 }, (_, i) => (
+              <div key={i} style={{ position: 'relative', marginBottom: '6px' }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px 14px',
+                  background: cardImageSlots[i] ? '#f0fdf4' : 'white',
+                  border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
+                  borderRadius: '8px', fontSize: '13px',
+                }}>
+                  <span style={{ fontSize: '11px', color: '#6b7280', minWidth: '52px', flexShrink: 0 }}>ページ{i + 1}</span>
+                  {cardImageSlots[i] ? (
+                    <span style={{ color: '#16a34a', fontWeight: 'bold', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      ✅ {cardImageSlots[i]!.name}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#9ca3af', flex: 1 }}>タップして追加</span>
+                  )}
+                  {cardImageSlots[i] && (
+                    <button onClick={e => {
+                      e.stopPropagation()
+                      setCardImageSlots(prev => { const next = [...prev]; next[i] = null; return next })
+                    }}
+                      style={{ padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0, zIndex: 1, position: 'relative' }}>
+                      削除
+                    </button>
+                  )}
+                </div>
+                {!processingImages && (
+                  <input type="file" accept="image/*"
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+                    onChange={e => {
+                      if (e.target.files?.[0]) {
+                        const file = e.target.files[0]
+                        setCardImageSlots(prev => { const next = [...prev]; next[i] = file; return next })
+                      }
+                      e.target.value = ''
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+            {filledSlotCount > 0 && (
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <button onClick={handleCardImages} disabled={processingImages}
+                  style={{ flex: 1, padding: '13px', background: processingImages ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: processingImages ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+                  {processingImages ? imageProgress || '処理中...' : `🤖 ${filledSlotCount}枚を順番に読み取る`}
+                </button>
+                <button onClick={() => setCardImageSlots(Array(10).fill(null))} disabled={processingImages}
+                  style={{ padding: '13px 16px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                  クリア
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -675,7 +748,7 @@ export default function ImportPage() {
       )}
 
       {/* テキスト入力 */}
-      {showTextReadButton && !receiptData && !amazonData && (
+      {!receiptData && !amazonData && (
         <div style={{ marginBottom: '16px' }}>
           <button onClick={() => setShowTextArea(!showTextArea)}
             style={{ width: '100%', padding: '12px', background: showTextArea ? '#e5e7eb' : '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151', textAlign: 'left' }}>
@@ -701,38 +774,15 @@ export default function ImportPage() {
         </div>
       )}
 
-      {currentImportId && (
-        <div style={{ background: '#eff6ff', border: '1px solid #3b82f6', borderRadius: '8px', padding: '8px 12px', marginBottom: '12px', fontSize: '12px', color: '#1d4ed8' }}>
-          📂 明細保存済 ID: {currentImportId.slice(0, 8)}...
-        </div>
-      )}
-
       {receiptData && (
         <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>AI読取完了 - 内容確認</div>
           <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>日付</span><span>{receiptData.date}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>店名</span><span>{receiptData.store_name}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>金額</span>
-              <span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{receiptData.amount.toLocaleString()}</span>
-            </div>
-            {receiptData.tax_amount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#6b7280' }}>消費税</span>
-                <span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span>
-              </div>
-            )}
-            {receiptData.invoice_no && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#6b7280' }}>登録番号</span>
-                <span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{receiptData.date}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>店名</span><span>{receiptData.store_name}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{receiptData.amount.toLocaleString()}</span></div>
+            {receiptData.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>消費税</span><span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span></div>}
+            {receiptData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span></div>}
           </div>
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>種別</label>
@@ -760,9 +810,7 @@ export default function ImportPage() {
               {savingReceipt ? '登録中...' : '💾 登録'}
             </button>
             <button onClick={() => { setReceiptData(null); setTextInput('') }}
-              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-              やり直し
-            </button>
+              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>やり直し</button>
           </div>
         </div>
       )}
@@ -771,22 +819,10 @@ export default function ImportPage() {
         <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
           <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>🛒 Amazon AI読取完了 - 内容確認</div>
           <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>日付</span><span>{amazonData.date}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>金額</span>
-              <span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{amazonData.amount.toLocaleString()}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>摘要（note）</span><span style={{ fontSize: '12px', color: '#6b7280' }}>{amazonData.memo}</span>
-            </div>
-            {amazonData.order_no && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#6b7280' }}>注文番号</span>
-                <span style={{ fontSize: '11px' }}>{amazonData.order_no}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{amazonData.date}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{amazonData.amount.toLocaleString()}</span></div>
+            <div style={{ marginBottom: '4px' }}><span style={{ color: '#6b7280', fontSize: '12px' }}>商品概要（note）：</span><span style={{ fontSize: '12px' }}>{amazonData.memo}</span></div>
+            {amazonData.order_no && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>注文番号</span><span style={{ fontSize: '11px' }}>{amazonData.order_no}</span></div>}
           </div>
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
@@ -801,56 +837,55 @@ export default function ImportPage() {
               {savingAmazon ? '登録中...' : '💾 登録'}
             </button>
             <button onClick={() => { setAmazonData(null); setTextInput('') }}
-              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>
-              やり直し
-            </button>
+              style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>やり直し</button>
           </div>
         </div>
       )}
 
       {rows.length > 0 && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', fontSize: '12px' }}>
-          <span style={{ color: '#16a34a' }}>経費：{counts.keiji}件</span>
-          <span style={{ color: '#6b7280' }}>家事：{counts.kataji}件</span>
-          <span style={{ color: '#d97706' }}>要確認：{counts.confirm}件</span>
-          <span style={{ color: '#374151' }}>未分類：{counts.pending}件</span>
-        </div>
-      )}
-
-      {rows.map(r => {
-        const offset = swipeOffset[r.id] || 0
-        const { bg, border } = statusBg(r.status)
-        return (
-          <div key={r.id} style={{ position: 'relative', marginBottom: '6px', overflow: 'hidden', borderRadius: '8px' }}>
-            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '70px', background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#6b7280', fontWeight: 'bold' }}>
-              家事 →
-            </div>
-            <div onClick={() => toggleStatus(r.id)}
-              onTouchStart={e => onTouchStart(r.id, e.touches[0].clientX)}
-              onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
-              onTouchEnd={() => onTouchEnd(r.id)}
-              style={{ transform: `translateX(${offset}px)`, transition: offset === 0 ? 'transform 0.2s' : 'none', background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: '8px', padding: '10px 12px', opacity: r.status === 'kataji' ? 0.5 : 1, cursor: 'pointer' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>{r.date}</div>
-                  <div style={{ fontSize: '13px' }}>{r.description}</div>
-                  {r.account && <div style={{ fontSize: '11px', color: '#6b7280' }}>{r.account}</div>}
+        <>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', fontSize: '12px' }}>
+            <span style={{ color: '#16a34a' }}>経費：{counts.keiji}件</span>
+            <span style={{ color: '#6b7280' }}>家事：{counts.kataji}件</span>
+            <span style={{ color: '#d97706' }}>要確認：{counts.confirm}件</span>
+            <span style={{ color: '#374151' }}>未分類：{counts.pending}件</span>
+          </div>
+          {rows.map(r => {
+            const offset = swipeOffset[r.id] || 0
+            const { bg, border } = statusBg(r.status)
+            return (
+              <div key={r.id} style={{ position: 'relative', marginBottom: '6px', overflow: 'hidden', borderRadius: '8px' }}>
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '70px', background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#6b7280', fontWeight: 'bold' }}>
+                  家事 →
                 </div>
-                <div style={{ fontSize: '15px', fontWeight: 'bold', marginLeft: '12px' }}>¥{r.amount.toLocaleString()}</div>
+                <div onClick={() => toggleStatus(r.id)}
+                  onTouchStart={e => onTouchStart(r.id, e.touches[0].clientX)}
+                  onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
+                  onTouchEnd={() => onTouchEnd(r.id)}
+                  style={{ transform: `translateX(${offset}px)`, transition: offset === 0 ? 'transform 0.2s' : 'none', background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: '8px', padding: '10px 12px', opacity: r.status === 'kataji' ? 0.5 : 1, cursor: 'pointer' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '2px' }}>
+                        <span style={{ fontSize: '11px', color: '#6b7280' }}>{r.date}</span>
+                        {r.person && <span style={{ fontSize: '10px', background: r.person === 'wife' ? '#dbeafe' : '#ede9fe', color: r.person === 'wife' ? '#1d4ed8' : '#7c3aed', padding: '1px 6px', borderRadius: '4px' }}>{r.person === 'wife' ? '妻' : '廣！'}</span>}
+                      </div>
+                      <div style={{ fontSize: '13px' }}>{r.description}</div>
+                      {r.account && <div style={{ fontSize: '11px', color: '#6b7280' }}>{r.account}</div>}
+                    </div>
+                    <div style={{ fontSize: '15px', fontWeight: 'bold', marginLeft: '12px' }}>¥{r.amount.toLocaleString()}</div>
+                  </div>
+                </div>
               </div>
-            </div>
+            )
+          })}
+          <div style={{ marginTop: '16px', display: 'flex', gap: '8px', position: 'sticky', bottom: '16px' }}>
+            <button onClick={saveToStaging} disabled={saving}
+              style={{ flex: 1, padding: '14px', background: saving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
+              {saving ? '保存中...' : `💾 ${rows.length}件をstagingに保存`}
+            </button>
+            <button onClick={() => setRows([])} style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>クリア</button>
           </div>
-        )
-      })}
-
-      {rows.length > 0 && (
-        <div style={{ marginTop: '16px', display: 'flex', gap: '8px', position: 'sticky', bottom: '16px' }}>
-          <button onClick={saveToStaging} disabled={saving}
-            style={{ flex: 1, padding: '14px', background: saving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-            {saving ? '保存中...' : `💾 ${rows.length}件をstagingに保存`}
-          </button>
-          <button onClick={() => setRows([])} style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>クリア</button>
-        </div>
+        </>
       )}
     </div>
   )
