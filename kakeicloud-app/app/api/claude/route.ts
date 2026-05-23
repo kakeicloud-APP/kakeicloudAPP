@@ -1,274 +1,170 @@
-// v2.1.4 app/api/claude/route.ts card_imageタイプ追加
-/**
- * kakeicloud v2.1.4 | 2026/05/22
- * kakeicloud-app/app/api/claude/route.ts
- */
+// v2.2.1 app/api/claude/route.ts card_summaryタイプ追加・card_imageに本人/家族振分追加
+import Anthropic from '@anthropic-ai/sdk'
+import { NextResponse } from 'next/server'
 
-import { NextRequest, NextResponse } from 'next/server'
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-export const maxDuration = 60
-
-const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages'
-
-async function callClaude(body: object) {
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.error?.message || JSON.stringify(err))
-  }
-  return res.json()
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { type, imageBase64, mediaType, text } = await req.json()
+    const body = await req.json()
+    const { type, imageBase64, mediaType, text } = body
 
-    if (type === 'pdf') {
-      const result = await callClaude({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imageBase64 } },
-            { type: 'text', text: `このPDFはクレジットカードまたは銀行の明細書です。
-取引明細を全件抽出してJSON配列のみを返してください。
-説明文・マークダウン記号は不要です。
+    const model = 'claude-haiku-4-5-20251001'
+    const maxTokens = 2000
+    let messages: any[] = []
 
-形式：
-[
-  {"date": "2025-10-26", "description": "利用先名", "amount": 1330},
-  ...
-]
-
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）
-- descriptionは利用先名をそのまま記載` },
-          ],
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
-
-    } else if (type === 'receipt') {
-      const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
-            { type: 'text', text: `このレシートから情報を抽出してJSONオブジェクトのみを返してください。
-説明文・マークダウン記号は不要です。
-
-形式：
+    if (type === 'receipt') {
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `このレシートから以下の情報をJSONで抽出してください。
 {
   "store_name": "店名",
   "date": "YYYY-MM-DD",
-  "amount": 税込金額（整数）,
-  "tax_amount": 消費税額（整数）,
-  "tax_rate": 税率（8または10）,
-  "memo": "摘要として使う短い説明",
-  "account": "推定科目（消耗品費/通信費/旅費交通費/接待交際費/雑費など）",
-  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）"
-}` },
-          ],
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
+  "amount": 金額（税込・数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 税率（8または10・数値）,
+  "memo": "店名を簡潔に",
+  "account": "消耗品費などの科目",
+  "invoice_no": "インボイス登録番号（T始まり・なければnull）"
+}
+JSONのみ返してください。` }
+        ]
+      }]
 
     } else if (type === 'amazon') {
-      const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
-            { type: 'text', text: `この画像はAmazonの注文情報または請求書です。
-以下の情報を抽出してJSONオブジェクトのみを返してください。
-説明文・マークダウン記号は不要です。
-
-形式：
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `このAmazonの注文確認画面から以下の情報をJSONで抽出してください。
 {
   "date": "YYYY-MM-DD",
-  "amount": 税込合計金額（整数）,
-  "tax_amount": 消費税額（整数）,
-  "tax_rate": 税率（8または10）,
-  "order_no": "注文番号（例：503-XXXXXXX-XXXXXXX、なければ空文字）",
-  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）",
-  "memo": "商品名を簡潔に（複数の場合は代表品名＋件数）",
-  "note": "商品名の詳細説明（フルの商品名・色・型番など）",
-  "account": "推定科目（消耗品費/通信費/雑費など）"
+  "amount": 合計金額（数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 10,
+  "order_no": "注文番号",
+  "invoice_no": "インボイス番号（なければnull）",
+  "memo": "商品名を20文字以内で簡潔に",
+  "note": "商品名の詳細",
+  "account": "消耗品費"
 }
+JSONのみ返してください。` }
+        ]
+      }]
 
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）
-- 情報が読み取れない項目は空文字または0にする` },
-          ],
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
+    } else if (type === 'pdf') {
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imageBase64 } },
+          { type: 'text', text: `このPDFの明細から取引一覧をJSONで抽出してください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額}]
+配列のみ返してください。` }
+        ]
+      }]
+
+    } else if (type === 'card_image') {
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `このカード明細画像から取引一覧をJSONで抽出してください。
+利用者欄が「本人」「本人*」の行はperson="wife"としてください。
+利用者欄が「家族」「家族*」の行はperson="hiroshi"としてください。
+利用者欄がない場合はperson="hiroshi"としてください。
+マイナス金額（返金）は除外してください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"person":"hiroshi または wife"}]
+配列のみ返してください。` }
+        ]
+      }]
+
+    } else if (type === 'card_summary') {
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `このカードの請求金額サマリーページから以下の情報をJSONで抽出してください。
+{
+  "billing_month": "請求年月（YYYY-MM形式）",
+  "billing_total": 請求金額合計（数値のみ）,
+  "honcard_total": 本カード会員様利用分（数値のみ・なければ0）,
+  "kazoku_total": 家族カード会員様利用分（数値のみ・なければ0）,
+  "etc_total": ETCカード利用分（数値のみ・なければ0）
+}
+JSONのみ返してください。` }
+        ]
+      }]
 
     } else if (type === 'text_receipt') {
-      const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `以下はレシートから手動で抽出したテキストです。
-情報を解析してJSONオブジェクトのみを返してください。
-説明文・マークダウン記号は不要です。
-
-テキスト：
+      messages = [{
+        role: 'user',
+        content: `以下のテキストはレシートの内容です。JSON形式で抽出してください。
 ${text}
 
-形式：
 {
   "store_name": "店名",
   "date": "YYYY-MM-DD",
-  "amount": 税込金額（整数）,
-  "tax_amount": 消費税額（整数）,
-  "tax_rate": 税率（8または10）,
-  "memo": "摘要として使う短い説明",
-  "account": "推定科目（消耗品費/通信費/旅費交通費/接待交際費/雑費など）",
-  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）"
+  "amount": 金額（税込・数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 税率（8または10・数値）,
+  "memo": "店名を簡潔に",
+  "account": "消耗品費などの科目",
+  "invoice_no": "インボイス登録番号（T始まり・なければnull）"
 }
-
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- 日付が不明な場合は今日の日付
-- amountは正の整数（円）`,
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
+JSONのみ返してください。`
+      }]
 
     } else if (type === 'text_amazon') {
-      const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `以下はAmazonの注文情報または請求書から手動で抽出したテキストです。
-情報を解析してJSONオブジェクトのみを返してください。
-説明文・マークダウン記号は不要です。
-
-テキスト：
+      messages = [{
+        role: 'user',
+        content: `以下のテキストはAmazonの注文情報です。JSON形式で抽出してください。
 ${text}
 
-形式：
 {
   "date": "YYYY-MM-DD",
-  "amount": 税込合計金額（整数）,
-  "tax_amount": 消費税額（整数）,
-  "tax_rate": 税率（8または10）,
-  "order_no": "注文番号（例：503-XXXXXXX-XXXXXXX、なければ空文字）",
-  "invoice_no": "適格請求書番号（T+13桁、なければ空文字）",
-  "memo": "商品名を簡潔に（複数の場合は代表品名＋件数）",
-  "note": "商品名の詳細説明（フルの商品名・色・型番など）",
-  "account": "推定科目（消耗品費/通信費/雑費など）"
+  "amount": 合計金額（数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 10,
+  "order_no": "注文番号",
+  "invoice_no": "インボイス番号（なければnull）",
+  "memo": "商品名を20文字以内で簡潔に",
+  "note": "商品名の詳細",
+  "account": "消耗品費"
 }
-
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）
-- 情報が読み取れない項目は空文字または0にする`,
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
+JSONのみ返してください。`
+      }]
 
     } else if (type === 'text_card') {
-      const result = await callClaude({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: `以下は楽天カードなどクレジットカード明細のOCRテキストです。
-取引明細を全件抽出してJSON配列のみを返してください。
-説明文・マークダウン記号は不要です。
-
-テキスト：
+      messages = [{
+        role: 'user',
+        content: `以下のテキストはカード明細のデータです。取引一覧をJSONで抽出してください。
 ${text}
 
-形式：
-[
-  {"date": "2025-10-26", "description": "利用先名", "amount": 1330},
-  ...
-]
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額}]
+配列のみ返してください。マイナス金額（返金）は除外してください。`
+      }]
 
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）。読み取れない場合は0にする
-- descriptionは利用先名をそのまま記載
-- AKAZON / AVAZON / AMAZON等の表記揺れはすべて「AMAZON CO.JP」に統一する
-- 日付（YYYY/MM/DD形式）で始まる行のみを取引明細として扱う
-- 「ご利用明細」「支払方法」「手数料」「ポイント」「リボ」等のヘッダー・フッター行は除外する
-- 返金・取消はamountをマイナスにせず除外する
-- 金額が次の行にある場合も正しく紐付けること`,
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
-
-    } else if (type === 'card_image') {
-      const result = await callClaude({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
-            { type: 'text', text: `この画像はクレジットカードの利用明細ページです。
-取引明細を全件抽出してJSON配列のみを返してください。
-説明文・マークダウン記号は不要です。
-
-形式：
-[
-  {"date": "2025-10-26", "description": "利用先名", "amount": 1330},
-  ...
-]
-
-ルール：
-- dateはYYYY-MM-DD形式（令和7年=2025年、令和8年=2026年）
-- amountは正の整数（円）。読み取れない場合は0にする
-- descriptionは利用先名をそのまま記載
-- 利用者欄（本人・家族）は無視して全件取得する
-- ヘッダー・フッター・合計・サマリー行は除外する
-- 取引明細（利用日・利用店名・利用金額）の行のみ抽出する
-- 返金・取消は除外する
-- ETCカード売上も取引として抽出する` },
-          ],
-        }],
-      })
-      const t = result.content[0].text
-      const clean = t.replace(/```json\n?|\n?```/g, '').trim()
-      return NextResponse.json({ data: JSON.parse(clean) })
+    } else {
+      return NextResponse.json({ error: `unknown type: ${type}` }, { status: 400 })
     }
 
-    return NextResponse.json({ error: '不明なtype' }, { status: 400 })
+    const response = await client.messages.create({ model, max_tokens: maxTokens, messages })
 
-  } catch (error: any) {
-    console.error('Claude API error:', error)
-    return NextResponse.json({ error: error.message || 'Claude API エラー' }, { status: 500 })
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+    const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+
+    let data: any
+    try {
+      data = JSON.parse(cleaned)
+    } catch {
+      return NextResponse.json({ error: `parse error: ${cleaned.slice(0, 200)}` }, { status: 500 })
+    }
+
+    return NextResponse.json({ data })
+
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 })
   }
 }
