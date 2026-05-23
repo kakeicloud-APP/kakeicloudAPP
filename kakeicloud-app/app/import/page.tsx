@@ -1,6 +1,6 @@
-// v2.1.7 app/import/page.tsx 全ファイル入力をiOS対応オーバーレイ方式に変更
+// v2.2.0 app/import/page.tsx カード選択ボタン化・Amazon memo/note入れ替え
 /**
- * kakeicloud v2.1.7 | 2026/05/22
+ * kakeicloud v2.2.0 | 2026/05/22
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -305,7 +305,7 @@ export default function ImportPage() {
         setAmazonData(json.data)
         setAmazonAccount(json.data.account || KEIJI_ACCOUNTS[0])
         setShowTextArea(false)
-      } else if (tab === 'カードCSV' || tab === '弥生CSV' || tab === 'PDF') {
+      } else {
         const json = await callApi({ type: 'text_card', text: textInput })
         if (!Array.isArray(json.data)) throw new Error('data error')
         const parsed: ImportRow[] = json.data.map((d: any, i: number) => ({
@@ -334,7 +334,7 @@ export default function ImportPage() {
   async function handlePDF(file: File): Promise<ImportRow[]> {
     const base64 = await fileToBase64(file)
     const json = await callApi({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' })
-    if (!Array.isArray(json.data)) throw new Error(`data error`)
+    if (!Array.isArray(json.data)) throw new Error('data error')
     return json.data.map((d: any, i: number) => ({
       id: `pdf-${i}`, date: d.date || '', description: d.description || '',
       amount: Math.abs(d.amount || 0), status: 'pending' as const,
@@ -412,7 +412,10 @@ export default function ImportPage() {
         person, date: amazonData.date, account: amazonAccount, amount: amazonData.amount,
         tax_type: '課税仕入', tax_rate: amazonData.tax_rate || 10, tax_amount: amazonData.tax_amount || 0,
         invoice_no: amazonData.invoice_no || null, method: '未払金',
-        memo: amazonData.memo, note: amazonData.note || null, order_no: amazonData.order_no || null,
+        payment_account: 'Amazon',
+        memo: 'Amazon証憑より',
+        note: amazonData.memo || null,
+        order_no: amazonData.order_no || null,
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
       })
       if (error) throw new Error(error.message)
@@ -493,7 +496,7 @@ export default function ImportPage() {
   const isReceiptTab = tab === 'レシート'
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
-  const showTextReadButton = tab === 'レシート' || tab === 'Amazon' || tab === 'カードCSV' || tab === '弥生CSV' || tab === 'PDF'
+  const showTextReadButton = !isReceiptTab || !receiptData
   const filledSlotCount = cardImageSlots.filter(s => s !== null).length
 
   return (
@@ -525,17 +528,32 @@ export default function ImportPage() {
         ))}
       </div>
 
+      {/* カード選択ボタン（大きく・見落とし防止） */}
       {isPdfOrCsv && paymentAccounts.length > 0 && (
-        <div style={{ marginBottom: '12px' }}>
-          <label style={{ display: 'block', fontSize: '12px', marginBottom: '4px', color: '#374151' }}>取込元口座</label>
-          <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)}
-            style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px' }}>
-            {paymentAccounts.map(a => <option key={a.id} value={a.id}>{a.name}（{a.kind}）</option>)}
-          </select>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>取込元口座</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+            {paymentAccounts.map(a => (
+              <button key={a.id} onClick={() => setSelectedAccountId(a.id)}
+                style={{
+                  padding: '12px 20px',
+                  background: selectedAccountId === a.id ? '#2563eb' : '#f3f4f6',
+                  color: selectedAccountId === a.id ? 'white' : '#374151',
+                  border: `2px solid ${selectedAccountId === a.id ? '#2563eb' : '#e5e7eb'}`,
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: selectedAccountId === a.id ? 'bold' : 'normal',
+                  minWidth: '140px',
+                }}>
+                💳 {a.name}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* CSV/PDFファイル選択（オーバーレイ方式） */}
+      {/* CSV/PDFファイル選択 */}
       {!isReceiptTab && !isAmazonTab && (
         <div style={{ position: 'relative', marginBottom: '8px' }}>
           <div style={{
@@ -578,33 +596,22 @@ export default function ImportPage() {
                   <span style={{ color: '#9ca3af', flex: 1 }}>タップして追加</span>
                 )}
                 {cardImageSlots[i] && (
-                  <button
-                    onClick={e => {
-                      e.stopPropagation()
-                      setCardImageSlots(prev => {
-                        const next = [...prev]
-                        next[i] = null
-                        return next
-                      })
-                    }}
+                  <button onClick={e => {
+                    e.stopPropagation()
+                    setCardImageSlots(prev => { const next = [...prev]; next[i] = null; return next })
+                  }}
                     style={{ padding: '2px 8px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626', flexShrink: 0, zIndex: 1, position: 'relative' }}>
                     削除
                   </button>
                 )}
               </div>
               {!processingImages && (
-                <input
-                  type="file"
-                  accept="image/*"
+                <input type="file" accept="image/*"
                   style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
                   onChange={e => {
                     if (e.target.files?.[0]) {
                       const file = e.target.files[0]
-                      setCardImageSlots(prev => {
-                        const next = [...prev]
-                        next[i] = file
-                        return next
-                      })
+                      setCardImageSlots(prev => { const next = [...prev]; next[i] = file; return next })
                     }
                     e.target.value = ''
                   }}
@@ -667,7 +674,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* テキスト入力エリア */}
+      {/* テキスト入力 */}
       {showTextReadButton && !receiptData && !amazonData && (
         <div style={{ marginBottom: '16px' }}>
           <button onClick={() => setShowTextArea(!showTextArea)}
@@ -676,19 +683,9 @@ export default function ImportPage() {
           </button>
           {showTextArea && (
             <div style={{ marginTop: '8px', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px', background: '#fafafa' }}>
-              <label style={{ display: 'block', fontSize: '12px', color: '#6b7280', marginBottom: '6px' }}>
-                {tab === 'PDF' ? 'PDFから手動でコピーしたテキストを貼り付けてください' : '写真から手動でコピーしたテキストを貼り付けてください'}
-              </label>
-              <textarea
-                value={textInput}
-                onChange={e => setTextInput(e.target.value)}
-                placeholder={
-                  isReceiptTab ? '店名、日付、金額、税率、登録番号などを貼り付け...' :
-                  isAmazonTab ? '注文番号、日付、商品名、金額などを貼り付け...' :
-                  '明細データを貼り付け（日付、店名、金額）...'
-                }
-                style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', minHeight: '120px', fontSize: '13px', resize: 'vertical' }}
-              />
+              <textarea value={textInput} onChange={e => setTextInput(e.target.value)}
+                placeholder="明細データを貼り付け..."
+                style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '6px', boxSizing: 'border-box', minHeight: '120px', fontSize: '13px', resize: 'vertical' }} />
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                 <button onClick={handleTextRead} disabled={loadingText || !textInput.trim()}
                   style={{ flex: 1, padding: '12px', background: loadingText || !textInput.trim() ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '8px', cursor: loadingText || !textInput.trim() ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
@@ -781,31 +778,13 @@ export default function ImportPage() {
               <span style={{ color: '#6b7280' }}>金額</span>
               <span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{amazonData.amount.toLocaleString()}</span>
             </div>
-            {amazonData.tax_amount > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ color: '#6b7280' }}>消費税</span>
-                <span>¥{amazonData.tax_amount.toLocaleString()}（{amazonData.tax_rate}%）</span>
-              </div>
-            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-              <span style={{ color: '#6b7280' }}>摘要</span><span>{amazonData.memo}</span>
+              <span style={{ color: '#6b7280' }}>摘要（note）</span><span style={{ fontSize: '12px', color: '#6b7280' }}>{amazonData.memo}</span>
             </div>
-            {amazonData.note && (
-              <div style={{ marginBottom: '4px' }}>
-                <span style={{ color: '#6b7280', fontSize: '11px' }}>備考</span>
-                <div style={{ fontSize: '11px', color: '#374151', marginTop: '2px' }}>{amazonData.note}</div>
-              </div>
-            )}
             {amazonData.order_no && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#6b7280' }}>注文番号</span>
                 <span style={{ fontSize: '11px' }}>{amazonData.order_no}</span>
-              </div>
-            )}
-            {amazonData.invoice_no && (
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#6b7280' }}>登録番号</span>
-                <span style={{ fontSize: '11px' }}>{amazonData.invoice_no}</span>
               </div>
             )}
           </div>
@@ -846,8 +825,7 @@ export default function ImportPage() {
             <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '70px', background: '#e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#6b7280', fontWeight: 'bold' }}>
               家事 →
             </div>
-            <div
-              onClick={() => toggleStatus(r.id)}
+            <div onClick={() => toggleStatus(r.id)}
               onTouchStart={e => onTouchStart(r.id, e.touches[0].clientX)}
               onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
               onTouchEnd={() => onTouchEnd(r.id)}
