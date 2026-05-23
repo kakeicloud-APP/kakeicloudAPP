@@ -1,6 +1,6 @@
-// v2.0.7 app/staging/page.tsx 取込承認ページ新規作成
+// v2.1.3 app/staging/page.tsx Amazonマッチング表示・承認処理追加
 /**
- * kakeicloud v2.0.7 | 2026/05/22
+ * kakeicloud v2.1.3 | 2026/05/22
  * kakeicloud-app/app/staging/page.tsx
  */
 
@@ -18,6 +18,8 @@ type StagingRow = {
   description: string
   amount: number
   status: 'keiji' | 'kataji' | 'confirm' | 'pending'
+  matched_transaction_id: string | null
+  match_note: string | null
   created_at: string
 }
 
@@ -92,6 +94,22 @@ export default function StagingPage() {
     if (status === 'kataji') { await deleteRow(row.id); return }
     setApproving(prev => ({ ...prev, [row.id]: true }))
     try {
+      // Amazonマッチあり → 既存transactionを更新するだけ
+      if (row.matched_transaction_id) {
+        const { error } = await supabase
+          .from('transactions')
+          .update({
+            payment_account: row.source_name || null,
+            is_confirmed: true,
+          })
+          .eq('id', row.matched_transaction_id)
+        if (error) throw new Error(error.message)
+        await supabase.from('import_staging').delete().eq('id', row.id)
+        setRows(prev => prev.filter(r => r.id !== row.id))
+        return
+      }
+
+      // 通常フロー → 新規transaction作成
       const year = parseInt(row.date.split('-')[0])
       const account = accounts[row.id] || KEIJI_ACCOUNTS[0]
       const taxRate = taxRates[row.id] ?? 10
@@ -204,8 +222,9 @@ export default function StagingPage() {
           const s = statuses[row.id] || row.status
           const { bg, border, label, labelColor } = statusColor(s)
           const isApproving = approving[row.id]
+          const isMatched = !!row.matched_transaction_id
           return (
-            <div key={row.id} style={{ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: '8px', padding: '12px', marginBottom: '10px' }}>
+            <div key={row.id} style={{ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${isMatched ? '#f97316' : border}`, borderRadius: '8px', padding: '12px', marginBottom: '10px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>{row.date}　{row.source_name}</div>
@@ -214,6 +233,15 @@ export default function StagingPage() {
                 </div>
                 <span style={{ fontSize: '11px', fontWeight: 'bold', color: labelColor, background: 'white', border: `1px solid ${border}`, borderRadius: '4px', padding: '2px 8px', marginLeft: '8px' }}>{label}</span>
               </div>
+
+              {/* Amazonマッチ候補表示 */}
+              {isMatched && (
+                <div style={{ background: '#fff7ed', border: '1px solid #f97316', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px', fontSize: '12px', color: '#c2410c' }}>
+                  🛒 Amazon照合候補あり<br />
+                  <span style={{ fontSize: '11px', color: '#6b7280' }}>{row.match_note}</span><br />
+                  <span style={{ fontSize: '11px', color: '#c2410c', fontWeight: 'bold' }}>承認すると既存データの口座情報を更新します（新規登録なし）</span>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
                 {[
@@ -229,7 +257,8 @@ export default function StagingPage() {
                 ))}
               </div>
 
-              {s === 'keiji' && (
+              {/* 科目・税率（経費かつAmazonマッチなしのみ） */}
+              {s === 'keiji' && !isMatched && (
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                   <select value={accounts[row.id] || KEIJI_ACCOUNTS[0]}
                     onChange={e => setAccounts(prev => ({ ...prev, [row.id]: e.target.value }))}
@@ -251,8 +280,8 @@ export default function StagingPage() {
               <div style={{ display: 'flex', gap: '8px' }}>
                 {s !== 'kataji' && (
                   <button onClick={() => approveRow(row)} disabled={isApproving}
-                    style={{ flex: 1, padding: '10px', background: isApproving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: isApproving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
-                    {isApproving ? '登録中...' : '✅ 承認'}
+                    style={{ flex: 1, padding: '10px', background: isApproving ? '#9ca3af' : isMatched ? '#f97316' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: isApproving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                    {isApproving ? '処理中...' : isMatched ? '🛒 Amazon照合確定' : '✅ 承認'}
                   </button>
                 )}
                 <button onClick={() => deleteRow(row.id)}
