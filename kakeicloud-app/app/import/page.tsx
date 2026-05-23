@@ -1,6 +1,6 @@
-// v2.2.2 app/import/page.tsx サマリースロット追加
+// v2.2.3 app/import/page.tsx カード選択を未選択状態に変更
 /**
- * kakeicloud v2.2.2 | 2026/05/22
+ * kakeicloud v2.2.3 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -142,7 +142,7 @@ export default function ImportPage() {
     ])
     setRules(r || [])
     setPaymentAccounts(p || [])
-    if (p && p.length > 0) setSelectedAccountId(p[0].id)
+    // 自動選択しない（未選択状態を保つ）
   }
 
   function applyRules(rows: ImportRow[]): ImportRow[] {
@@ -210,6 +210,7 @@ export default function ImportPage() {
 
   async function handleSummaryImport() {
     if (!summarySlot) return
+    if (!selectedAccountId) { alert('取込元口座を選択してください'); return }
     setProcessingSummary(true)
     setErrorMsg(null)
     try {
@@ -455,6 +456,7 @@ export default function ImportPage() {
 
   async function saveToStaging() {
     if (rows.length === 0) { alert('データがありません'); return }
+    if (!selectedAccountId) { alert('取込元口座を選択してください'); return }
     if (!summaryImportId) {
       const go = confirm('サマリーページが未取込です。このまま保存しますか？')
       if (!go) return
