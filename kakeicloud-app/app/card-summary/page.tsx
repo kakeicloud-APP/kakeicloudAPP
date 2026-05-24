@@ -1,6 +1,6 @@
-// v2.2.9 app/card-summary/page.tsx マッチング時memo補完
+// v2.2.11 app/card-summary/page.tsx card_details参照・delete廃止・status管理・印刷ボタン
 /**
- * kakeicloud v2.2.9 | 2026/05/24
+ * kakeicloud v2.2.11 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -108,6 +108,7 @@ export default function CardSummaryPage() {
     if (selectedSummary) fetchMatchCandidates(selectedSummary)
   }, [selectedMonth, selectedCard])
 
+  // ⬇️ v2.2.11: import_staging → card_details
   async function fetchData() {
     setLoading(true)
     const { data: ci } = await supabase
@@ -121,8 +122,8 @@ export default function CardSummaryPage() {
     if (summaryList.length === 0) { setLoading(false); return }
 
     const ids = summaryList.map(s => s.id)
-    const [{ data: stagingData }, { data: txData }] = await Promise.all([
-      supabase.from('import_staging')
+    const [{ data: detailData }, { data: txData }] = await Promise.all([
+      supabase.from('card_details')
         .select('id, person, date, description, amount, source_name, card_import_id, status, account, memo, note')
         .in('card_import_id', ids).order('date'),
       supabase.from('transactions')
@@ -134,7 +135,7 @@ export default function CardSummaryPage() {
     const am: Record<string, TxRow[]> = {}
     const em: Record<string, { account: string; memo: string; note: string }> = {}
 
-    for (const item of (stagingData || [])) {
+    for (const item of (detailData || [])) {
       if (!sm[item.card_import_id]) sm[item.card_import_id] = []
       sm[item.card_import_id].push(item)
       em[item.id] = {
@@ -156,7 +157,7 @@ export default function CardSummaryPage() {
 
   async function fetchMatchCandidates(summary: CardImport) {
     const staging = stagingMap[summary.id] || []
-    const activeStaging = staging.filter(i => i.status !== 'kataji')
+    const activeStaging = staging.filter(i => i.status !== 'kataji' && i.status !== 'keiji')
     if (activeStaging.length === 0) return
 
     const dates = activeStaging.map(i => new Date(i.date))
@@ -195,6 +196,16 @@ export default function CardSummaryPage() {
     setEditMap(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
   }
 
+  // ⬇️ v2.2.11: statusをローカルで更新するヘルパー
+  function updateStagingStatus(summaryId: string, itemId: string, status: string) {
+    setStagingMap(prev => ({
+      ...prev,
+      [summaryId]: (prev[summaryId] || []).map(s =>
+        s.id === itemId ? { ...s, status } : s
+      )
+    }))
+  }
+
   async function generateVoucherNo(person: string, year: number): Promise<string> {
     const prefix = person === 'hiroshi' ? 'H' : 'W'
     const { data } = await supabase
@@ -209,27 +220,28 @@ export default function CardSummaryPage() {
     return `${prefix}${year}-${String(nextNum).padStart(4, '0')}`
   }
 
+  // ⬇️ v2.2.11: delete廃止 → status='keiji' + matched_transaction_id更新
   async function confirmMatch(item: StagingItem, candidate: MatchCandidate, summary: CardImport) {
     setMatchingId(item.id)
     try {
-      // memoが空の場合だけカードdescriptionで補完
       const updateData: any = { card_import_id: summary.id }
       if (!candidate.memo) {
         updateData.memo = `カード：${item.description}`
       }
-
-      const { error } = await supabase
+      const { error: txError } = await supabase
         .from('transactions')
         .update(updateData)
         .eq('id', candidate.id)
-      if (error) throw new Error(error.message)
+      if (txError) throw new Error(txError.message)
 
-      await supabase.from('import_staging').delete().eq('id', item.id)
+      // ⬇️ deleteの代わりにstatus更新
+      const { error: cdError } = await supabase
+        .from('card_details')
+        .update({ status: 'keiji', matched_transaction_id: candidate.id })
+        .eq('id', item.id)
+      if (cdError) throw new Error(cdError.message)
 
-      setStagingMap(prev => ({
-        ...prev,
-        [summary.id]: (prev[summary.id] || []).filter(s => s.id !== item.id)
-      }))
+      updateStagingStatus(summary.id, item.id, 'keiji')
       setApprovedMap(prev => ({
         ...prev,
         [summary.id]: [...(prev[summary.id] || []), {
@@ -251,6 +263,7 @@ export default function CardSummaryPage() {
     }
   }
 
+  // ⬇️ v2.2.11: delete廃止 → status='keiji'更新
   async function approveItem(item: StagingItem, summary: CardImport) {
     const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
     setApprovingId(item.id)
@@ -258,7 +271,7 @@ export default function CardSummaryPage() {
       const year = parseInt(item.date.split('-')[0])
       const voucherNo = await generateVoucherNo(item.person, year)
       const taxAmount = Math.round(item.amount * 10 / 110)
-      const { error } = await supabase.from('transactions').insert({
+      const { error: txError } = await supabase.from('transactions').insert({
         person: item.person,
         date: item.date,
         account: edit.account,
@@ -279,13 +292,16 @@ export default function CardSummaryPage() {
         voucher_no: voucherNo,
         card_import_id: summary.id,
       })
-      if (error) throw new Error(error.message)
-      await supabase.from('import_staging').delete().eq('id', item.id)
+      if (txError) throw new Error(txError.message)
 
-      setStagingMap(prev => ({
-        ...prev,
-        [summary.id]: (prev[summary.id] || []).filter(s => s.id !== item.id)
-      }))
+      // ⬇️ deleteの代わりにstatus更新
+      const { error: cdError } = await supabase
+        .from('card_details')
+        .update({ status: 'keiji' })
+        .eq('id', item.id)
+      if (cdError) throw new Error(cdError.message)
+
+      updateStagingStatus(summary.id, item.id, 'keiji')
       setApprovedMap(prev => ({
         ...prev,
         [summary.id]: [...(prev[summary.id] || []), {
@@ -302,13 +318,25 @@ export default function CardSummaryPage() {
     }
   }
 
-  async function skipItem(item: StagingItem, summary: CardImport) {
+  // ⬇️ v2.2.11: delete廃止 → status='kataji'更新
+  async function markAsKataji(item: StagingItem, summary: CardImport) {
     if (!confirm(`「${item.description}」を家事として除外しますか？`)) return
-    await supabase.from('import_staging').delete().eq('id', item.id)
-    setStagingMap(prev => ({
-      ...prev,
-      [summary.id]: (prev[summary.id] || []).filter(s => s.id !== item.id)
-    }))
+    const { error } = await supabase
+      .from('card_details')
+      .update({ status: 'kataji' })
+      .eq('id', item.id)
+    if (error) { alert(`エラー: ${error.message}`); return }
+    updateStagingStatus(summary.id, item.id, 'kataji')
+  }
+
+  // ⬇️ v2.2.11: 家事→pending に戻す（deleteの代わり）
+  async function restoreFromKataji(item: StagingItem, summary: CardImport) {
+    const { error } = await supabase
+      .from('card_details')
+      .update({ status: 'pending' })
+      .eq('id', item.id)
+    if (error) { alert(`エラー: ${error.message}`); return }
+    updateStagingStatus(summary.id, item.id, 'pending')
   }
 
   const cardTypes = Array.from(new Set(summaries.map(s => s.card_type)))
@@ -324,8 +352,8 @@ export default function CardSummaryPage() {
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
       <style>{`@media print { .no-print { display: none !important; } }`}</style>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
-        <a href="/" className="no-print" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+        <a href="/" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
         <h1 style={{ margin: 0, fontSize: '20px' }}>カード明細照合</h1>
         <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: 'auto' }}>{VERSION}</span>
       </div>
@@ -334,7 +362,7 @@ export default function CardSummaryPage() {
         <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>読み込み中...</div>
       ) : (
         <>
-          <div style={{ marginBottom: '16px' }}>
+          <div className="no-print" style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>カード会社</div>
             {cardTypes.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '14px', lineHeight: 1.8 }}>
@@ -362,13 +390,13 @@ export default function CardSummaryPage() {
           </div>
 
           {selectedCard && (
-            <div style={{ marginBottom: '20px' }}>
+            <div className="no-print" style={{ marginBottom: '20px' }}>
               <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>請求月</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {monthsForCard.map(m => {
                   const s = summaries.find(s => s.card_type === selectedCard && s.billing_month === m)!
                   const stagingItems = stagingMap[s.id] || []
-                  const pendingCount = stagingItems.filter(i => i.status !== 'kataji').length
+                  const pendingCount = stagingItems.filter(i => i.status !== 'kataji' && i.status !== 'keiji').length
                   const approvedCount = (approvedMap[s.id] || []).length
                   return (
                     <button key={m}
@@ -408,7 +436,7 @@ export default function CardSummaryPage() {
             const allStaging = stagingMap[summary.id] || []
             const approved = approvedMap[summary.id] || []
             const katajiItems = allStaging.filter(i => i.status === 'kataji')
-            const pendingItems = allStaging.filter(i => i.status !== 'kataji')
+            const pendingItems = allStaging.filter(i => i.status !== 'kataji' && i.status !== 'keiji')
             const wifeApproved = approved.filter(t => t.person === 'wife').reduce((sum, t) => sum + t.amount, 0)
             const hiroshiApproved = approved.filter(t => t.person === 'hiroshi').reduce((sum, t) => sum + t.amount, 0)
             const wifeDiff = (summary.honcard_total || 0) - wifeApproved
@@ -416,14 +444,21 @@ export default function CardSummaryPage() {
 
             return (
               <div style={{ border: '2px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden' }}>
-                <div style={{ background: '#1e293b', color: 'white', padding: '14px 16px' }}>
-                  <div style={{ fontSize: '17px', fontWeight: 'bold' }}>💳 {summary.card_type}　{summary.billing_month}</div>
-                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
-                    請求合計 ¥{(summary.billing_total || 0).toLocaleString()}　
-                    妻 ¥{(summary.honcard_total || 0).toLocaleString()}　
-                    廣！¥{(summary.kazoku_total || 0).toLocaleString()}
-                    {(summary.etc_total || 0) > 0 && `　ETC ¥${summary.etc_total.toLocaleString()}`}
+                <div style={{ background: '#1e293b', color: 'white', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: '17px', fontWeight: 'bold' }}>💳 {summary.card_type}　{summary.billing_month}</div>
+                    <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>
+                      請求合計 ¥{(summary.billing_total || 0).toLocaleString()}　
+                      妻 ¥{(summary.honcard_total || 0).toLocaleString()}　
+                      廣！¥{(summary.kazoku_total || 0).toLocaleString()}
+                      {(summary.etc_total || 0) > 0 && `　ETC ¥${summary.etc_total.toLocaleString()}`}
+                    </div>
                   </div>
+                  {/* ⬇️ v2.2.11: 印刷ボタン */}
+                  <button className="no-print" onClick={() => window.print()}
+                    style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>
+                    🖨 印刷
+                  </button>
                 </div>
 
                 <div style={{ padding: '16px' }}>
@@ -513,7 +548,7 @@ export default function CardSummaryPage() {
                                 style={{ flex: 1, padding: '8px', background: approvingId === item.id ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
                                 {approvingId === item.id ? '...' : '✅ 新規で承認'}
                               </button>
-                              <button onClick={() => skipItem(item, summary)} disabled={!!approvingId}
+                              <button onClick={() => markAsKataji(item, summary)} disabled={!!approvingId}
                                 style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontSize: '13px' }}>
                                 家事
                               </button>
@@ -537,9 +572,10 @@ export default function CardSummaryPage() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <span style={{ fontSize: '13px', color: '#6b7280' }}>¥{item.amount.toLocaleString()}</span>
-                            <button onClick={() => skipItem(item, summary)}
-                              style={{ padding: '3px 10px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626' }}>
-                              削除
+                            {/* ⬇️ v2.2.11: 削除→戻す */}
+                            <button onClick={() => restoreFromKataji(item, summary)}
+                              style={{ padding: '3px 10px', background: '#dbeafe', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#1d4ed8' }}>
+                              戻す
                             </button>
                           </div>
                         </div>
