@@ -1,5 +1,6 @@
+// v2.0.1 app/settings/page.tsx 科目を全カテゴリに拡張
 /**
- * kakeicloud v2.0.0 | 2026/05/21
+ * kakeicloud v2.0.1 | 2026/05/24
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -39,7 +40,38 @@ const PERSONS = [
   { value: "wife", label: "妻" },
   { value: "both", label: "共通" },
 ]
-const ACCOUNTS = ["消耗品費", "通信費", "旅費交通費", "接待交際費", "地代家賃", "水道光熱費", "修繕費", "広告宣伝費", "外注費", "雑費"]
+
+const ALL_ACCOUNTS = {
+  keiji: [
+    '消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃',
+    '水道光熱費', '修繕費', '広告宣伝費', '外注費', '減価償却費',
+    '車両費', '諸会費', '新聞図書費', '研修費', '支払手数料',
+    '租税公課', '保険料', '雑費', '開業費償却'
+  ],
+  uriage: ['売上高'],
+  kojyo: ['医療費', '寄附金', '社会保険料', '生命保険料', '地震保険料', '小規模企業共済'],
+  sonota: ['普通預金', '現金', '未払金', '前払費用', '棚卸資産', '事業主貸', '事業主借', '雑収入'],
+}
+
+function AccountSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
+      <optgroup label="経費">
+        {ALL_ACCOUNTS.keiji.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="売上">
+        {ALL_ACCOUNTS.uriage.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="控除">
+        {ALL_ACCOUNTS.kojyo.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="その他">
+        {ALL_ACCOUNTS.sonota.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+    </select>
+  )
+}
 
 export default function Settings() {
   const [accounts, setAccounts] = useState<PaymentAccount[]>([])
@@ -343,10 +375,7 @@ export default function Settings() {
             {ruleAction === "keiji" && (
               <div style={{ marginBottom: "10px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>勘定科目</label>
-                <select value={ruleAccount} onChange={e => setRuleAccount(e.target.value)}
-                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }}>
-                  {ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
+                <AccountSelect value={ruleAccount} onChange={setRuleAccount} />
               </div>
             )}
             <div style={{ marginBottom: "12px" }}>
