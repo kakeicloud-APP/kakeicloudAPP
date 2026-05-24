@@ -1,6 +1,6 @@
-// v2.2.4 app/card-summary/page.tsx カード会社・年月選択追加
+// v2.2.7 app/card-summary/page.tsx マッチング機能追加
 /**
- * kakeicloud v2.2.4 | 2026/05/24
+ * kakeicloud v2.2.7 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -27,6 +27,10 @@ type StagingItem = {
   amount: number
   source_name: string
   card_import_id: string
+  status: string
+  account?: string
+  memo?: string
+  note?: string
 }
 
 type TxRow = {
@@ -40,6 +44,17 @@ type TxRow = {
   card_import_id: string
 }
 
+type MatchCandidate = {
+  id: string
+  person: string
+  date: string
+  account: string
+  amount: number
+  memo: string
+  note?: string
+  voucher_no?: string
+}
+
 const KEIJI_ACCOUNTS = [
   '消耗品費', '通信費', '旅費交通費', '接待交際費', '地代家賃',
   '水道光熱費', '修繕費', '広告宣伝費', '外注費', '減価償却費',
@@ -51,14 +66,20 @@ export default function CardSummaryPage() {
   const [summaries, setSummaries] = useState<CardImport[]>([])
   const [stagingMap, setStagingMap] = useState<Record<string, StagingItem[]>>({})
   const [approvedMap, setApprovedMap] = useState<Record<string, TxRow[]>>({})
-  const [accountMap, setAccountMap] = useState<Record<string, string>>({})
+  const [editMap, setEditMap] = useState<Record<string, { account: string; memo: string; note: string }>>({})
+  const [matchCandidatesMap, setMatchCandidatesMap] = useState<Record<string, MatchCandidate[]>>({})
+  const [showMatchModal, setShowMatchModal] = useState<{ item: StagingItem; summary: CardImport } | null>(null)
   const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [matchingId, setMatchingId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedCard, setSelectedCard] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
 
   useEffect(() => { fetchData() }, [])
   useEffect(() => { setSelectedMonth(null) }, [selectedCard])
+  useEffect(() => {
+    if (selectedSummary) fetchMatchCandidates(selectedSummary)
+  }, [selectedMonth, selectedCard])
 
   async function fetchData() {
     setLoading(true)
@@ -75,7 +96,7 @@ export default function CardSummaryPage() {
     const ids = summaryList.map(s => s.id)
     const [{ data: stagingData }, { data: txData }] = await Promise.all([
       supabase.from('import_staging')
-        .select('id, person, date, description, amount, source_name, card_import_id')
+        .select('id, person, date, description, amount, source_name, card_import_id, status, account, memo, note')
         .in('card_import_id', ids).order('date'),
       supabase.from('transactions')
         .select('id, person, date, account, amount, memo, voucher_no, card_import_id')
@@ -84,12 +105,16 @@ export default function CardSummaryPage() {
 
     const sm: Record<string, StagingItem[]> = {}
     const am: Record<string, TxRow[]> = {}
-    const acm: Record<string, string> = {}
+    const em: Record<string, { account: string; memo: string; note: string }> = {}
 
     for (const item of (stagingData || [])) {
       if (!sm[item.card_import_id]) sm[item.card_import_id] = []
       sm[item.card_import_id].push(item)
-      acm[item.id] = '消耗品費'
+      em[item.id] = {
+        account: item.account || '消耗品費',
+        memo: item.memo || `カード：${item.description}`,
+        note: item.note || '',
+      }
     }
     for (const tx of (txData || [])) {
       if (!am[tx.card_import_id]) am[tx.card_import_id] = []
@@ -98,8 +123,49 @@ export default function CardSummaryPage() {
 
     setStagingMap(sm)
     setApprovedMap(am)
-    setAccountMap(acm)
+    setEditMap(em)
     setLoading(false)
+  }
+
+  async function fetchMatchCandidates(summary: CardImport) {
+    const staging = stagingMap[summary.id] || []
+    const activeStaging = staging.filter(i => i.status !== 'kataji')
+    if (activeStaging.length === 0) return
+
+    const dates = activeStaging.map(i => new Date(i.date))
+    const minDate = new Date(Math.min(...dates.map(d => d.getTime())))
+    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())))
+    minDate.setDate(minDate.getDate() - 10)
+    maxDate.setDate(maxDate.getDate() + 10)
+
+    const amounts = [...new Set(activeStaging.map(i => i.amount))]
+
+    const { data } = await supabase
+      .from('transactions')
+      .select('id, person, date, account, amount, memo, note, voucher_no')
+      .in('amount', amounts)
+      .eq('is_void', false)
+      .is('card_import_id', null)
+      .gte('date', minDate.toISOString().split('T')[0])
+      .lte('date', maxDate.toISOString().split('T')[0])
+
+    const allTx = data || []
+    const candidates: Record<string, MatchCandidate[]> = {}
+
+    for (const item of activeStaging) {
+      const itemDate = new Date(item.date)
+      candidates[item.id] = allTx.filter(tx => {
+        const txDate = new Date(tx.date)
+        const diffDays = Math.abs((txDate.getTime() - itemDate.getTime()) / (1000 * 60 * 60 * 24))
+        return tx.amount === item.amount && diffDays <= 10
+      })
+    }
+
+    setMatchCandidatesMap(candidates)
+  }
+
+  function updateEdit(id: string, patch: Partial<{ account: string; memo: string; note: string }>) {
+    setEditMap(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
   }
 
   async function generateVoucherNo(person: string, year: number): Promise<string> {
@@ -116,8 +182,44 @@ export default function CardSummaryPage() {
     return `${prefix}${year}-${String(nextNum).padStart(4, '0')}`
   }
 
+  async function confirmMatch(item: StagingItem, candidate: MatchCandidate, summary: CardImport) {
+    setMatchingId(item.id)
+    try {
+      const { error } = await supabase
+        .from('transactions')
+        .update({ card_import_id: summary.id })
+        .eq('id', candidate.id)
+      if (error) throw new Error(error.message)
+
+      await supabase.from('import_staging').delete().eq('id', item.id)
+
+      setStagingMap(prev => ({
+        ...prev,
+        [summary.id]: (prev[summary.id] || []).filter(s => s.id !== item.id)
+      }))
+      setApprovedMap(prev => ({
+        ...prev,
+        [summary.id]: [...(prev[summary.id] || []), {
+          id: candidate.id,
+          person: candidate.person,
+          date: candidate.date,
+          account: candidate.account,
+          amount: candidate.amount,
+          memo: candidate.memo,
+          voucher_no: candidate.voucher_no,
+          card_import_id: summary.id,
+        }]
+      }))
+      setShowMatchModal(null)
+    } catch (e: any) {
+      alert(`エラー: ${e.message}`)
+    } finally {
+      setMatchingId(null)
+    }
+  }
+
   async function approveItem(item: StagingItem, summary: CardImport) {
-    const account = accountMap[item.id] || '消耗品費'
+    const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
     setApprovingId(item.id)
     try {
       const year = parseInt(item.date.split('-')[0])
@@ -126,14 +228,15 @@ export default function CardSummaryPage() {
       const { error } = await supabase.from('transactions').insert({
         person: item.person,
         date: item.date,
-        account,
+        account: edit.account,
         amount: item.amount,
         tax_type: '課税仕入',
         tax_rate: 10,
         tax_amount: taxAmount,
         method: '未払金',
         payment_account: item.source_name,
-        memo: `カード：${item.description}`,
+        memo: edit.memo,
+        note: edit.note || null,
         year,
         is_closing: false,
         is_confirmed: false,
@@ -154,9 +257,8 @@ export default function CardSummaryPage() {
         ...prev,
         [summary.id]: [...(prev[summary.id] || []), {
           id: voucherNo, person: item.person, date: item.date,
-          account, amount: item.amount,
-          memo: `カード：${item.description}`,
-          voucher_no: voucherNo,
+          account: edit.account, amount: item.amount,
+          memo: edit.memo, voucher_no: voucherNo,
           card_import_id: summary.id,
         }]
       }))
@@ -234,7 +336,8 @@ export default function CardSummaryPage() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                 {monthsForCard.map(m => {
                   const s = summaries.find(s => s.card_type === selectedCard && s.billing_month === m)!
-                  const stagingCount = (stagingMap[s.id] || []).length
+                  const stagingItems = stagingMap[s.id] || []
+                  const pendingCount = stagingItems.filter(i => i.status !== 'kataji').length
                   const approvedCount = (approvedMap[s.id] || []).length
                   return (
                     <button key={m}
@@ -249,14 +352,12 @@ export default function CardSummaryPage() {
                         display: 'flex', alignItems: 'center', gap: '6px',
                       }}>
                       {m}
-                      {stagingCount > 0 && (
+                      {pendingCount > 0 && (
                         <span style={{ fontSize: '11px', background: selectedMonth === m ? 'rgba(255,255,255,0.3)' : '#fef3c7', color: selectedMonth === m ? 'white' : '#92400e', padding: '1px 6px', borderRadius: '8px', fontWeight: 'bold' }}>
-                          {stagingCount}件
+                          {pendingCount}件
                         </span>
                       )}
-                      {stagingCount === 0 && approvedCount > 0 && (
-                        <span style={{ fontSize: '11px' }}>✅</span>
-                      )}
+                      {pendingCount === 0 && approvedCount > 0 && <span style={{ fontSize: '11px' }}>✅</span>}
                     </button>
                   )
                 })}
@@ -264,23 +365,20 @@ export default function CardSummaryPage() {
             </div>
           )}
 
-          {/* プロンプト */}
           {!selectedCard && cardTypes.length > 0 && (
-            <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '14px' }}>
-              カード会社を選択してください
-            </div>
+            <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '14px' }}>カード会社を選択してください</div>
           )}
           {selectedCard && !selectedMonth && (
-            <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '14px' }}>
-              請求月を選択してください
-            </div>
+            <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '14px' }}>請求月を選択してください</div>
           )}
 
           {/* 詳細 */}
           {selectedSummary && (() => {
             const summary = selectedSummary
-            const staging = stagingMap[summary.id] || []
+            const allStaging = stagingMap[summary.id] || []
             const approved = approvedMap[summary.id] || []
+            const katajiItems = allStaging.filter(i => i.status === 'kataji')
+            const pendingItems = allStaging.filter(i => i.status !== 'kataji')
             const wifeApproved = approved.filter(t => t.person === 'wife').reduce((sum, t) => sum + t.amount, 0)
             const hiroshiApproved = approved.filter(t => t.person === 'hiroshi').reduce((sum, t) => sum + t.amount, 0)
             const wifeDiff = (summary.honcard_total || 0) - wifeApproved
@@ -324,41 +422,115 @@ export default function CardSummaryPage() {
                   </div>
 
                   {/* 承認待ち */}
-                  {staging.length > 0 && (
+                  {pendingItems.length > 0 && (
                     <div style={{ marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#92400e', marginBottom: '8px' }}>
-                        承認待ち（{staging.length}件）
+                        承認待ち（{pendingItems.length}件）
                       </div>
-                      {staging.map(item => (
-                        <div key={item.id} style={{ background: 'white', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px', marginBottom: '6px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                            <div>
-                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px' }}>
-                                <span style={{ fontSize: '11px', color: '#6b7280' }}>{item.date}</span>
-                                <span style={{ fontSize: '10px', background: item.person === 'wife' ? '#dbeafe' : '#ede9fe', color: item.person === 'wife' ? '#1d4ed8' : '#7c3aed', padding: '1px 6px', borderRadius: '4px' }}>
-                                  {item.person === 'wife' ? '妻' : '廣！'}
-                                </span>
+                      {pendingItems.map(item => {
+                        const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
+                        const candidates = matchCandidatesMap[item.id] || []
+                        const isConfirm = item.status === 'confirm'
+
+                        return (
+                          <div key={item.id} style={{ background: isConfirm ? '#fffbeb' : 'white', border: `1px solid ${isConfirm ? '#f59e0b' : '#fde68a'}`, borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
+
+                            {/* ヘッダー */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px', flexWrap: 'wrap' }}>
+                                  <span style={{ fontSize: '11px', color: '#6b7280' }}>{item.date}</span>
+                                  <span style={{ fontSize: '10px', background: item.person === 'wife' ? '#dbeafe' : '#ede9fe', color: item.person === 'wife' ? '#1d4ed8' : '#7c3aed', padding: '1px 6px', borderRadius: '4px' }}>
+                                    {item.person === 'wife' ? '妻' : '廣！'}
+                                  </span>
+                                  {isConfirm && <span style={{ fontSize: '10px', background: '#fef3c7', color: '#92400e', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>⚠️ 要確認</span>}
+                                  {candidates.length > 0 && (
+                                    <span style={{ fontSize: '10px', background: '#ede9fe', color: '#7c3aed', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                      🔗 候補{candidates.length}件
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: '13px', fontWeight: 'bold' }}>{item.description}</div>
                               </div>
-                              <div style={{ fontSize: '13px' }}>{item.description}</div>
+                              <div style={{ fontWeight: 'bold', fontSize: '15px', flexShrink: 0, marginLeft: '8px' }}>
+                                ¥{item.amount.toLocaleString()}
+                              </div>
                             </div>
-                            <div style={{ fontWeight: 'bold', fontSize: '15px', flexShrink: 0, marginLeft: '8px' }}>
-                              ¥{item.amount.toLocaleString()}
+
+                            {/* マッチングボタン */}
+                            {candidates.length > 0 && (
+                              <button
+                                onClick={() => setShowMatchModal({ item, summary })}
+                                style={{ width: '100%', padding: '8px', background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#7c3aed', fontWeight: 'bold', marginBottom: '10px' }}>
+                                🔗 既存データとマッチング（{candidates.length}件の候補）
+                              </button>
+                            )}
+
+                            {/* 科目 */}
+                            <div style={{ marginBottom: '6px' }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>科目</label>
+                              <select
+                                value={edit.account}
+                                onChange={e => updateEdit(item.id, { account: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
+                                {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                            </div>
+
+                            {/* memo */}
+                            <div style={{ marginBottom: '6px' }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>摘要（memo・印刷される）</label>
+                              <input
+                                value={edit.memo}
+                                onChange={e => updateEdit(item.id, { memo: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                              />
+                            </div>
+
+                            {/* note */}
+                            <div style={{ marginBottom: '10px' }}>
+                              <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>備考（note・印刷されない）</label>
+                              <input
+                                value={edit.note}
+                                onChange={e => updateEdit(item.id, { note: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
+                              />
+                            </div>
+
+                            {/* 承認ボタン */}
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button onClick={() => approveItem(item, summary)} disabled={!!approvingId}
+                                style={{ flex: 1, padding: '8px', background: approvingId === item.id ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
+                                {approvingId === item.id ? '...' : '✅ 新規で承認'}
+                              </button>
+                              <button onClick={() => skipItem(item, summary)} disabled={!!approvingId}
+                                style={{ padding: '8px 16px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontSize: '13px' }}>
+                                家事
+                              </button>
                             </div>
                           </div>
-                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                            <select
-                              value={accountMap[item.id] || '消耗品費'}
-                              onChange={e => setAccountMap(prev => ({ ...prev, [item.id]: e.target.value }))}
-                              style={{ flex: 1, padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                              {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
-                            </select>
-                            <button onClick={() => approveItem(item, summary)} disabled={!!approvingId}
-                              style={{ padding: '6px 16px', background: approvingId === item.id ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px', flexShrink: 0 }}>
-                              {approvingId === item.id ? '...' : '経費'}
-                            </button>
-                            <button onClick={() => skipItem(item, summary)} disabled={!!approvingId}
-                              style={{ padding: '6px 12px', background: '#e5e7eb', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontSize: '13px', flexShrink: 0 }}>
-                              家事
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* 家事リスト */}
+                  {katajiItems.length > 0 && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#6b7280', marginBottom: '8px' }}>
+                        家事（{katajiItems.length}件・除外済み）
+                      </div>
+                      {katajiItems.map(item => (
+                        <div key={item.id} style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 12px', marginBottom: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: 0.6 }}>
+                          <div>
+                            <span style={{ fontSize: '11px', color: '#6b7280', marginRight: '8px' }}>{item.date}</span>
+                            <span style={{ fontSize: '13px' }}>{item.description}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '13px', color: '#6b7280' }}>¥{item.amount.toLocaleString()}</span>
+                            <button onClick={() => skipItem(item, summary)}
+                              style={{ padding: '3px 10px', background: '#fee2e2', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#dc2626' }}>
+                              削除
                             </button>
                           </div>
                         </div>
@@ -391,7 +563,7 @@ export default function CardSummaryPage() {
                     </div>
                   )}
 
-                  {staging.length === 0 && approved.length === 0 && (
+                  {allStaging.length === 0 && approved.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', fontSize: '13px' }}>
                       明細データがありません。取込ページのステップ2から明細を読み取ってください。
                     </div>
@@ -402,6 +574,48 @@ export default function CardSummaryPage() {
           })()}
         </>
       )}
+
+      {/* マッチングモーダル */}
+      {showMatchModal && (() => {
+        const { item, summary } = showMatchModal
+        const candidates = matchCandidatesMap[item.id] || []
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: '16px' }}>
+            <div style={{ background: 'white', borderRadius: '12px', width: '100%', maxWidth: '400px', maxHeight: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{ padding: '16px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: '15px', fontWeight: 'bold', marginBottom: '4px' }}>🔗 マッチング候補</div>
+                <div style={{ fontSize: '12px', color: '#6b7280' }}>{item.date}　{item.description}　¥{item.amount.toLocaleString()}</div>
+              </div>
+              <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+                {candidates.map(c => (
+                  <div key={c.id} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '11px', color: '#6b7280' }}>{c.date}</span>
+                      <span style={{ fontWeight: 'bold', fontSize: '14px' }}>¥{c.amount.toLocaleString()}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#16a34a', fontWeight: 'bold', marginBottom: '2px' }}>{c.account}</div>
+                    <div style={{ fontSize: '13px', marginBottom: '2px' }}>{c.memo}</div>
+                    {c.note && <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>📝 {c.note}</div>}
+                    {c.voucher_no && <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>{c.voucher_no}</div>}
+                    <button
+                      onClick={() => confirmMatch(item, c, summary)}
+                      disabled={!!matchingId}
+                      style={{ width: '100%', padding: '8px', background: matchingId === item.id ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: !!matchingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                      {matchingId === item.id ? '処理中...' : 'これをマッチ'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: '12px', borderTop: '1px solid #e5e7eb' }}>
+                <button onClick={() => setShowMatchModal(null)}
+                  style={{ width: '100%', padding: '12px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px' }}>
+                  候補なし・閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
