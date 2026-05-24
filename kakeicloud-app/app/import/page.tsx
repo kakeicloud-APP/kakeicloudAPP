@@ -1,6 +1,6 @@
-// v2.2.8 app/import/page.tsx 科目を全カテゴリに拡張
+// v2.2.10 app/import/page.tsx 保存先分岐：弥生→staging、それ以外→card_details
 /**
- * kakeicloud v2.2.8 | 2026/05/24
+ * kakeicloud v2.2.10 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -488,33 +488,54 @@ export default function ImportPage() {
     }
   }
 
-  async function saveToStaging() {
+  // ⬇️ v2.2.10 変更：弥生CSV→import_staging、それ以外→card_details
+  async function saveRows() {
     if (rows.length === 0) { alert('データがありません'); return }
     if (!selectedAccountId) { alert('取込元口座を選択してください'); return }
-    if (!summaryImportId) {
+    const isYayoi = tab === '弥生CSV'
+    if (!isYayoi && !summaryImportId) {
       const go = confirm('サマリーページが未取込です。このまま保存しますか？')
       if (!go) return
     }
-    if (!confirm(`${rows.length}件をstagingに保存しますか？`)) return
+    if (!confirm(`${rows.length}件を保存しますか？`)) return
     setSaving(true)
     try {
       const selectedAccount = paymentAccounts.find(a => a.id === selectedAccountId)
       const sourceName = selectedAccount?.name || '不明'
       const sourceType = selectedAccount?.kind || 'card'
-      for (const r of rows) {
-        await supabase.from('import_staging').insert({
-          person: r.person || person,
-          source_type: sourceType,
-          source_name: sourceName,
-          date: r.date,
-          description: r.description,
-          amount: r.amount,
-          status: r.status,
-          account: r.account || null,
-          memo: r.memo || null,
-          note: r.note || null,
-          card_import_id: summaryImportId || null,
-        })
+      if (isYayoi) {
+        for (const r of rows) {
+          await supabase.from('import_staging').insert({
+            person: r.person || person,
+            source_type: sourceType,
+            source_name: sourceName,
+            date: r.date,
+            description: r.description,
+            amount: r.amount,
+            status: r.status,
+            account: r.account || null,
+            memo: r.memo || null,
+            note: r.note || null,
+            card_import_id: null,
+          })
+        }
+      } else {
+        for (const r of rows) {
+          await supabase.from('card_details').insert({
+            card_import_id: summaryImportId || null,
+            person: r.person || person,
+            date: r.date,
+            description: r.description,
+            amount: r.amount,
+            status: r.status,
+            account: r.account || null,
+            memo: r.memo || null,
+            note: r.note || null,
+            source_name: sourceName,
+            source_type: sourceType,
+            matched_transaction_id: null,
+          })
+        }
       }
       alert(`${rows.length}件を保存しました`)
       setRows([])
@@ -568,6 +589,7 @@ export default function ImportPage() {
   const isAmazonTab = tab === 'Amazon'
   const isPdfOrCsv = tab === 'PDF' || tab === 'カードCSV' || tab === '弥生CSV'
   const filledSlotCount = cardImageSlots.filter(s => s !== null).length
+  const saveLabel = tab === '弥生CSV' ? 'stagingに保存' : 'card_detailsに保存'
 
   return (
     <div style={{ padding: '16px', fontFamily: 'sans-serif', maxWidth: '800px', margin: '0 auto' }}>
@@ -973,9 +995,9 @@ export default function ImportPage() {
           })}
 
           <div style={{ marginTop: '16px', display: 'flex', gap: '8px', position: 'sticky', bottom: '16px' }}>
-            <button onClick={saveToStaging} disabled={saving}
+            <button onClick={saveRows} disabled={saving}
               style={{ flex: 1, padding: '14px', background: saving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: saving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-              {saving ? '保存中...' : `💾 ${rows.length}件をstagingに保存`}
+              {saving ? '保存中...' : `💾 ${rows.length}件を${saveLabel}`}
             </button>
             <button onClick={() => setRows([])} style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>クリア</button>
           </div>
