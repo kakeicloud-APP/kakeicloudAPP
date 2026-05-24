@@ -1,6 +1,6 @@
-// v2.2.5 app/import/page.tsx memo/note追加・行展開でmemo/note編集
+// v2.2.8 app/import/page.tsx 科目を全カテゴリに拡張
 /**
- * kakeicloud v2.2.5 | 2026/05/24
+ * kakeicloud v2.2.8 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -78,6 +78,33 @@ const KEIJI_ACCOUNTS = [
   '車両費', '諸会費', '新聞図書費', '研修費', '支払手数料',
   '租税公課', '保険料', '雑費', '開業費償却'
 ]
+
+const ALL_ACCOUNTS = {
+  keiji: KEIJI_ACCOUNTS,
+  uriage: ['売上高'],
+  kojyo: ['医療費', '寄附金', '社会保険料', '生命保険料', '地震保険料', '小規模企業共済'],
+  sonota: ['普通預金', '現金', '未払金', '前払費用', '棚卸資産', '事業主貸', '事業主借', '雑収入'],
+}
+
+function AccountSelect({ value, onChange, style }: { value: string; onChange: (v: string) => void; style?: React.CSSProperties }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', ...style }}>
+      <optgroup label="経費">
+        {ALL_ACCOUNTS.keiji.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="売上">
+        {ALL_ACCOUNTS.uriage.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="控除">
+        {ALL_ACCOUNTS.kojyo.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="その他">
+        {ALL_ACCOUNTS.sonota.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+    </select>
+  )
+}
 
 const RECEIPT_KIND_LABELS: Record<ReceiptKind, string> = {
   keiji: '経費', iryo: '医療費', furusato: 'ふるさと納税', kaji: '家事',
@@ -879,7 +906,6 @@ export default function ImportPage() {
                   onTouchEnd={() => onTouchEnd(r.id)}
                   style={{ transform: `translateX(${offset}px)`, transition: offset === 0 ? 'transform 0.2s' : 'none', background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: '8px', opacity: r.status === 'kataji' ? 0.5 : 1 }}>
 
-                  {/* 行ヘッダー（タップで展開） */}
                   <div onClick={() => setExpandedRowId(isExpanded ? null : r.id)}
                     style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ flex: 1 }}>
@@ -904,11 +930,8 @@ export default function ImportPage() {
                     </div>
                   </div>
 
-                  {/* 展開エリア */}
                   {isExpanded && (
                     <div style={{ padding: '0 12px 12px', borderTop: '1px solid #e5e7eb' }}>
-
-                      {/* ステータスボタン */}
                       <div style={{ display: 'flex', gap: '6px', marginBottom: '10px', marginTop: '10px' }}>
                         {(['keiji', 'kataji', 'confirm', 'pending'] as const).map(s => (
                           <button key={s} onClick={() => updateRow(r.id, { status: s })}
@@ -923,35 +946,24 @@ export default function ImportPage() {
                         ))}
                       </div>
 
-                      {/* 科目 */}
                       <div style={{ marginBottom: '8px' }}>
                         <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>科目</label>
-                        <select
+                        <AccountSelect
                           value={r.account || '消耗品費'}
-                          onChange={e => updateRow(r.id, { account: e.target.value })}
-                          style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                          {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
-                        </select>
+                          onChange={v => updateRow(r.id, { account: v })}
+                        />
                       </div>
 
-                      {/* memo */}
                       <div style={{ marginBottom: '8px' }}>
                         <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>摘要（memo・印刷される）</label>
-                        <input
-                          value={r.memo || ''}
-                          onChange={e => updateRow(r.id, { memo: e.target.value })}
-                          style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                        />
+                        <input value={r.memo || ''} onChange={e => updateRow(r.id, { memo: e.target.value })}
+                          style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
                       </div>
 
-                      {/* note */}
                       <div>
                         <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>備考（note・印刷されない）</label>
-                        <input
-                          value={r.note || ''}
-                          onChange={e => updateRow(r.id, { note: e.target.value })}
-                          style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                        />
+                        <input value={r.note || ''} onChange={e => updateRow(r.id, { note: e.target.value })}
+                          style={{ width: '100%', padding: '7px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
                       </div>
                     </div>
                   )}
