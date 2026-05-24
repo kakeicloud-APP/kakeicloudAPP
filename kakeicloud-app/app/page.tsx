@@ -1,6 +1,6 @@
-// v2.2.4 app/page.tsx カード照合リンク追加
+// v2.2.12 app/page.tsx 月ボタン追加・月別絞り込み
 /**
- * kakeicloud v2.2.4 | 2026/05/22
+ * kakeicloud v2.2.12 | 2026/05/24
  * kakeicloud-app/app/page.tsx
  */
 
@@ -141,6 +141,8 @@ function getVoucherDisplay(r: Transaction): string[] {
 export default function Home() {
   const [person, setPerson] = useState<"hiroshi" | "wife">("hiroshi")
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
+  // ⬇️ v2.2.12: 月絞り込み state
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
   const [rows, setRows] = useState<Transaction[]>([])
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
   const [loading, setLoading] = useState(true)
@@ -172,7 +174,14 @@ export default function Home() {
   const [newOrderNo, setNewOrderNo] = useState("")
   const [newHasReceipt, setNewHasReceipt] = useState(true)
 
-  useEffect(() => { fetchData(); fetchPaymentAccounts(); fetchStagingCount() }, [person, selectedYear])
+  // ⬇️ v2.2.12: 年・人変更時に月もリセット
+  useEffect(() => {
+    fetchData()
+    fetchPaymentAccounts()
+    fetchStagingCount()
+    setSelectedMonth(null)
+  }, [person, selectedYear])
+
   useEffect(() => {
     const keys = Object.keys(ACCOUNTS) as (keyof typeof ACCOUNTS)[]
     const key = keys.find(k => k === newKind) || "keiji"
@@ -216,16 +225,21 @@ export default function Home() {
     )
   }
 
-  const activeRows = rows.filter(r => !r.is_void)
+  // ⬇️ v2.2.12: 月フィルタ baseRows（全ての絞り込みの起点）
+  const baseRows = selectedMonth
+    ? rows.filter(r => parseInt(r.date.split('-')[1]) === selectedMonth)
+    : rows
+
+  const activeRows = baseRows.filter(r => !r.is_void)
 
   const displayRows = (() => {
-    if (filterKind === "all") return rows
-    if (filterKind === "keiji") return rows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却")
-    if (filterKind === "uriage") return rows.filter(r => ACCOUNTS.uriage.includes(r.account))
-    if (filterKind === "kojyo") return rows.filter(r => ACCOUNTS.kojyo.includes(r.account))
-    if (filterKind === "kaigohiyo") return rows.filter(r => r.account === "開業費償却")
-    if (filterKind === "sonota") return rows.filter(r => ACCOUNTS.sonota.includes(r.account))
-    return rows
+    if (filterKind === "all") return baseRows
+    if (filterKind === "keiji") return baseRows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却")
+    if (filterKind === "uriage") return baseRows.filter(r => ACCOUNTS.uriage.includes(r.account))
+    if (filterKind === "kojyo") return baseRows.filter(r => ACCOUNTS.kojyo.includes(r.account))
+    if (filterKind === "kaigohiyo") return baseRows.filter(r => r.account === "開業費償却")
+    if (filterKind === "sonota") return baseRows.filter(r => ACCOUNTS.sonota.includes(r.account))
+    return baseRows
   })()
 
   const allPrintableRows = sortByVoucherNo(activeRows.filter(r => r.voucher_no))
@@ -487,18 +501,29 @@ export default function Home() {
         {allPrintableRows.length > 0 && (
           <button onClick={() => { setPrintPage(0); setPrintFilter("unprinted"); setShowPrint(true) }}
             style={{ padding: "8px 14px", background: unprintedCount > 0 ? "#7c3aed" : "#9ca3af", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>
-            {selectedYear} 証憑票{unprintedCount > 0 ? `（未印刷${unprintedCount}件）` : "（全印刷済）"}
+            {selectedYear}年{selectedMonth ? `${selectedMonth}月` : ""} 証憑票{unprintedCount > 0 ? `（未印刷${unprintedCount}件）` : "（全印刷済）"}
           </button>
         )}
         <button onClick={() => setShowForm(true)}
           style={{ marginLeft: "auto", padding: "8px 20px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>＋ 新規</button>
       </div>
 
-      <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
+      {/* 年ボタン */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "8px", flexWrap: "wrap" }}>
         {YEARS.map(y => (
           <button key={y} onClick={() => setSelectedYear(y)}
             style={{ padding: "6px 14px", background: selectedYear === y ? "#1e293b" : "#f3f4f6", color: selectedYear === y ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: selectedYear === y ? "bold" : "normal" }}>
             {y}
+          </button>
+        ))}
+      </div>
+
+      {/* ⬇️ v2.2.12: 月ボタン */}
+      <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
+        {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
+          <button key={m} onClick={() => setSelectedMonth(selectedMonth === m ? null : m)}
+            style={{ padding: "6px 10px", background: selectedMonth === m ? "#7c3aed" : "#f3f4f6", color: selectedMonth === m ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: selectedMonth === m ? "bold" : "normal" }}>
+            {m}月
           </button>
         ))}
       </div>
@@ -510,11 +535,11 @@ export default function Home() {
             {f.label}
             {f.key !== "all" && (
               <span style={{ marginLeft: "4px", fontSize: "11px" }}>
-                ({(f.key === "keiji" ? rows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却" && !r.is_void)
-                  : f.key === "uriage" ? rows.filter(r => ACCOUNTS.uriage.includes(r.account) && !r.is_void)
-                  : f.key === "kojyo" ? rows.filter(r => ACCOUNTS.kojyo.includes(r.account) && !r.is_void)
-                  : f.key === "kaigohiyo" ? rows.filter(r => r.account === "開業費償却" && !r.is_void)
-                  : rows.filter(r => ACCOUNTS.sonota.includes(r.account) && !r.is_void)).length})
+                ({(f.key === "keiji" ? baseRows.filter(r => ACCOUNTS.keiji.includes(r.account) && r.account !== "開業費償却" && !r.is_void)
+                  : f.key === "uriage" ? baseRows.filter(r => ACCOUNTS.uriage.includes(r.account) && !r.is_void)
+                  : f.key === "kojyo" ? baseRows.filter(r => ACCOUNTS.kojyo.includes(r.account) && !r.is_void)
+                  : f.key === "kaigohiyo" ? baseRows.filter(r => r.account === "開業費償却" && !r.is_void)
+                  : baseRows.filter(r => ACCOUNTS.sonota.includes(r.account) && !r.is_void)).length})
               </span>
             )}
           </button>
@@ -533,11 +558,11 @@ export default function Home() {
 
       <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
         <div style={{ background: "#fef2f2", padding: "12px 20px", borderRadius: "8px" }}>
-          <div style={{ fontSize: "12px", color: "#666" }}>経費合計</div>
+          <div style={{ fontSize: "12px", color: "#666" }}>経費合計{selectedMonth ? `（${selectedMonth}月）` : ""}</div>
           <div style={{ fontSize: "18px", fontWeight: "bold", color: "#dc2626" }}>△{total.toLocaleString()}円</div>
         </div>
         <div style={{ background: "#f0fdf4", padding: "12px 20px", borderRadius: "8px" }}>
-          <div style={{ fontSize: "12px", color: "#666" }}>売上合計</div>
+          <div style={{ fontSize: "12px", color: "#666" }}>売上合計{selectedMonth ? `（${selectedMonth}月）` : ""}</div>
           <div style={{ fontSize: "18px", fontWeight: "bold", color: "#16a34a" }}>{income.toLocaleString()}円</div>
         </div>
         {iryo > 0 && (
@@ -553,7 +578,7 @@ export default function Home() {
           </div>
         )}
         <div style={{ background: "#f8fafc", padding: "12px 20px", borderRadius: "8px" }}>
-          <div style={{ fontSize: "12px", color: "#666" }}>件数</div>
+          <div style={{ fontSize: "12px", color: "#666" }}>件数{selectedMonth ? `（${selectedMonth}月）` : ""}</div>
           <div style={{ fontSize: "18px", fontWeight: "bold" }}>{activeRows.length}件</div>
         </div>
       </div>
@@ -951,7 +976,7 @@ export default function Home() {
             <button onClick={() => setPrintPage(p => Math.max(0, p - 1))} disabled={printPage === 0}
               style={{ padding: "8px 16px", background: printPage === 0 ? "#e5e7eb" : "#2563eb", color: printPage === 0 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage === 0 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>←</button>
             <span style={{ fontWeight: "bold", fontSize: "14px" }}>
-              {selectedYear}年　{printPage + 1} / {totalPrintPages || 1}P
+              {selectedYear}年{selectedMonth ? `${selectedMonth}月` : ""}　{printPage + 1} / {totalPrintPages || 1}P
             </span>
             <button onClick={() => setPrintPage(p => Math.min(totalPrintPages - 1, p + 1))} disabled={printPage >= totalPrintPages - 1}
               style={{ padding: "8px 16px", background: printPage >= totalPrintPages - 1 ? "#e5e7eb" : "#2563eb", color: printPage >= totalPrintPages - 1 ? "#999" : "white", border: "none", borderRadius: "6px", cursor: printPage >= totalPrintPages - 1 ? "default" : "pointer", fontWeight: "bold", fontSize: "16px" }}>→</button>
@@ -1006,7 +1031,7 @@ export default function Home() {
             {Array.from({ length: totalPrintPages }).map((_, pageIdx) => (
               <div key={pageIdx} className="print-page">
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "8px", color: "#999", marginBottom: "4px" }}>
-                  <span>{selectedYear}年 証憑票</span>
+                  <span>{selectedYear}年{selectedMonth ? `${selectedMonth}月` : ""} 証憑票</span>
                   <span>{pageIdx + 1} / {totalPrintPages}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "4mm", height: "270mm" }}>
