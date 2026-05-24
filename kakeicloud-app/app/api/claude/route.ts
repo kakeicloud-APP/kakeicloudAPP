@@ -1,4 +1,4 @@
-// v2.2.1 app/api/claude/route.ts card_summaryタイプ追加・card_imageに本人/家族振分追加
+// v2.2.13 app/api/claude/route.ts card_image・pdfにETCインター情報のnote対応
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
@@ -60,7 +60,9 @@ JSONのみ返してください。` }
         content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: imageBase64 } },
           { type: 'text', text: `このPDFの明細から取引一覧をJSONで抽出してください。
-[{"date":"YYYY-MM-DD","description":"店名","amount":金額}]
+ETCカード売上の次の行に乗り場・降り場情報がある場合は、noteフィールドに「乗り場→降り場」形式で入れてください。
+ETCカード売上以外はnoteはnullにしてください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"note":"乗り場→降り場またはnull"}]
 配列のみ返してください。` }
         ]
       }]
@@ -75,7 +77,9 @@ JSONのみ返してください。` }
 利用者欄が「家族」「家族*」の行はperson="hiroshi"としてください。
 利用者欄がない場合はperson="hiroshi"としてください。
 マイナス金額（返金）は除外してください。
-[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"person":"hiroshi または wife"}]
+ETCカード売上の次の行に乗り場・降り場情報がある場合は、noteフィールドに「乗り場→降り場」形式で入れてください。
+ETCカード売上以外はnoteはnullにしてください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"person":"hiroshi または wife","note":"乗り場→降り場またはnull"}]
 配列のみ返してください。` }
         ]
       }]
