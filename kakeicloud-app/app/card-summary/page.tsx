@@ -1,6 +1,6 @@
-// v2.2.7 app/card-summary/page.tsx マッチング機能追加
+// v2.2.8 app/card-summary/page.tsx 科目を全カテゴリに拡張
 /**
- * kakeicloud v2.2.7 | 2026/05/24
+ * kakeicloud v2.2.8 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -61,6 +61,33 @@ const KEIJI_ACCOUNTS = [
   '車両費', '諸会費', '新聞図書費', '研修費', '支払手数料',
   '租税公課', '保険料', '雑費', '開業費償却'
 ]
+
+const ALL_ACCOUNTS = {
+  keiji: KEIJI_ACCOUNTS,
+  uriage: ['売上高'],
+  kojyo: ['医療費', '寄附金', '社会保険料', '生命保険料', '地震保険料', '小規模企業共済'],
+  sonota: ['普通預金', '現金', '未払金', '前払費用', '棚卸資産', '事業主貸', '事業主借', '雑収入'],
+}
+
+function AccountSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
+      <optgroup label="経費">
+        {ALL_ACCOUNTS.keiji.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="売上">
+        {ALL_ACCOUNTS.uriage.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="控除">
+        {ALL_ACCOUNTS.kojyo.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+      <optgroup label="その他">
+        {ALL_ACCOUNTS.sonota.map(a => <option key={a} value={a}>{a}</option>)}
+      </optgroup>
+    </select>
+  )
+}
 
 export default function CardSummaryPage() {
   const [summaries, setSummaries] = useState<CardImport[]>([])
@@ -301,7 +328,6 @@ export default function CardSummaryPage() {
         <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>読み込み中...</div>
       ) : (
         <>
-          {/* カード会社選択 */}
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>カード会社</div>
             {cardTypes.length === 0 ? (
@@ -329,7 +355,6 @@ export default function CardSummaryPage() {
             )}
           </div>
 
-          {/* 年月選択 */}
           {selectedCard && (
             <div style={{ marginBottom: '20px' }}>
               <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>請求月</div>
@@ -372,7 +397,6 @@ export default function CardSummaryPage() {
             <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '14px' }}>請求月を選択してください</div>
           )}
 
-          {/* 詳細 */}
           {selectedSummary && (() => {
             const summary = selectedSummary
             const allStaging = stagingMap[summary.id] || []
@@ -398,7 +422,6 @@ export default function CardSummaryPage() {
 
                 <div style={{ padding: '16px' }}>
 
-                  {/* 照合結果 */}
                   <div style={{ marginBottom: '16px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px' }}>
                     <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>照合結果</div>
                     <div style={{ fontSize: '13px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
@@ -421,7 +444,6 @@ export default function CardSummaryPage() {
                     </div>
                   </div>
 
-                  {/* 承認待ち */}
                   {pendingItems.length > 0 && (
                     <div style={{ marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#92400e', marginBottom: '8px' }}>
@@ -435,7 +457,6 @@ export default function CardSummaryPage() {
                         return (
                           <div key={item.id} style={{ background: isConfirm ? '#fffbeb' : 'white', border: `1px solid ${isConfirm ? '#f59e0b' : '#fde68a'}`, borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
 
-                            {/* ヘッダー */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                               <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px', flexWrap: 'wrap' }}>
@@ -457,47 +478,33 @@ export default function CardSummaryPage() {
                               </div>
                             </div>
 
-                            {/* マッチングボタン */}
                             {candidates.length > 0 && (
-                              <button
-                                onClick={() => setShowMatchModal({ item, summary })}
+                              <button onClick={() => setShowMatchModal({ item, summary })}
                                 style={{ width: '100%', padding: '8px', background: '#ede9fe', border: '1px solid #c4b5fd', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', color: '#7c3aed', fontWeight: 'bold', marginBottom: '10px' }}>
                                 🔗 既存データとマッチング（{candidates.length}件の候補）
                               </button>
                             )}
 
-                            {/* 科目 */}
                             <div style={{ marginBottom: '6px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>科目</label>
-                              <select
+                              <AccountSelect
                                 value={edit.account}
-                                onChange={e => updateEdit(item.id, { account: e.target.value })}
-                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-                                {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
-                              </select>
+                                onChange={v => updateEdit(item.id, { account: v })}
+                              />
                             </div>
 
-                            {/* memo */}
                             <div style={{ marginBottom: '6px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>摘要（memo・印刷される）</label>
-                              <input
-                                value={edit.memo}
-                                onChange={e => updateEdit(item.id, { memo: e.target.value })}
-                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                              />
+                              <input value={edit.memo} onChange={e => updateEdit(item.id, { memo: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
                             </div>
 
-                            {/* note */}
                             <div style={{ marginBottom: '10px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>備考（note・印刷されない）</label>
-                              <input
-                                value={edit.note}
-                                onChange={e => updateEdit(item.id, { note: e.target.value })}
-                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }}
-                              />
+                              <input value={edit.note} onChange={e => updateEdit(item.id, { note: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
                             </div>
 
-                            {/* 承認ボタン */}
                             <div style={{ display: 'flex', gap: '8px' }}>
                               <button onClick={() => approveItem(item, summary)} disabled={!!approvingId}
                                 style={{ flex: 1, padding: '8px', background: approvingId === item.id ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: !!approvingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '14px' }}>
@@ -514,7 +521,6 @@ export default function CardSummaryPage() {
                     </div>
                   )}
 
-                  {/* 家事リスト */}
                   {katajiItems.length > 0 && (
                     <div style={{ marginBottom: '16px' }}>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#6b7280', marginBottom: '8px' }}>
@@ -538,7 +544,6 @@ export default function CardSummaryPage() {
                     </div>
                   )}
 
-                  {/* 承認済 */}
                   {approved.length > 0 && (
                     <div>
                       <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#065f46', marginBottom: '8px' }}>
@@ -575,7 +580,6 @@ export default function CardSummaryPage() {
         </>
       )}
 
-      {/* マッチングモーダル */}
       {showMatchModal && (() => {
         const { item, summary } = showMatchModal
         const candidates = matchCandidatesMap[item.id] || []
@@ -597,9 +601,7 @@ export default function CardSummaryPage() {
                     <div style={{ fontSize: '13px', marginBottom: '2px' }}>{c.memo}</div>
                     {c.note && <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>📝 {c.note}</div>}
                     {c.voucher_no && <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>{c.voucher_no}</div>}
-                    <button
-                      onClick={() => confirmMatch(item, c, summary)}
-                      disabled={!!matchingId}
+                    <button onClick={() => confirmMatch(item, c, summary)} disabled={!!matchingId}
                       style={{ width: '100%', padding: '8px', background: matchingId === item.id ? '#9ca3af' : '#7c3aed', color: 'white', border: 'none', borderRadius: '6px', cursor: !!matchingId ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
                       {matchingId === item.id ? '処理中...' : 'これをマッチ'}
                     </button>
