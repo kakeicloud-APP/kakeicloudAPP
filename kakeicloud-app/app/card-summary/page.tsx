@@ -1,6 +1,6 @@
-// v2.2.8 app/card-summary/page.tsx 科目を全カテゴリに拡張
+// v2.2.9 app/card-summary/page.tsx マッチング時memo補完
 /**
- * kakeicloud v2.2.8 | 2026/05/24
+ * kakeicloud v2.2.9 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -212,9 +212,15 @@ export default function CardSummaryPage() {
   async function confirmMatch(item: StagingItem, candidate: MatchCandidate, summary: CardImport) {
     setMatchingId(item.id)
     try {
+      // memoが空の場合だけカードdescriptionで補完
+      const updateData: any = { card_import_id: summary.id }
+      if (!candidate.memo) {
+        updateData.memo = `カード：${item.description}`
+      }
+
       const { error } = await supabase
         .from('transactions')
-        .update({ card_import_id: summary.id })
+        .update(updateData)
         .eq('id', candidate.id)
       if (error) throw new Error(error.message)
 
@@ -232,7 +238,7 @@ export default function CardSummaryPage() {
           date: candidate.date,
           account: candidate.account,
           amount: candidate.amount,
-          memo: candidate.memo,
+          memo: candidate.memo || `カード：${item.description}`,
           voucher_no: candidate.voucher_no,
           card_import_id: summary.id,
         }]
@@ -487,10 +493,7 @@ export default function CardSummaryPage() {
 
                             <div style={{ marginBottom: '6px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>科目</label>
-                              <AccountSelect
-                                value={edit.account}
-                                onChange={v => updateEdit(item.id, { account: v })}
-                              />
+                              <AccountSelect value={edit.account} onChange={v => updateEdit(item.id, { account: v })} />
                             </div>
 
                             <div style={{ marginBottom: '6px' }}>
@@ -598,7 +601,7 @@ export default function CardSummaryPage() {
                       <span style={{ fontWeight: 'bold', fontSize: '14px' }}>¥{c.amount.toLocaleString()}</span>
                     </div>
                     <div style={{ fontSize: '12px', color: '#16a34a', fontWeight: 'bold', marginBottom: '2px' }}>{c.account}</div>
-                    <div style={{ fontSize: '13px', marginBottom: '2px' }}>{c.memo}</div>
+                    <div style={{ fontSize: '13px', marginBottom: '2px' }}>{c.memo || <span style={{ color: '#9ca3af' }}>（memo未記入）</span>}</div>
                     {c.note && <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>📝 {c.note}</div>}
                     {c.voucher_no && <div style={{ fontSize: '11px', color: '#9ca3af', marginBottom: '8px' }}>{c.voucher_no}</div>}
                     <button onClick={() => confirmMatch(item, c, summary)} disabled={!!matchingId}
