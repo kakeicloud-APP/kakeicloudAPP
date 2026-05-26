@@ -1,6 +1,6 @@
-// v2.2.12 app/page.tsx 月ボタン追加・月別絞り込み
+// v2.2.23 app/page.tsx 新規・編集モーダルに適格番号（invoice_no）フィールド追加
 /**
- * kakeicloud v2.2.12 | 2026/05/24
+ * kakeicloud v2.2.23 | 2026/05/24
  * kakeicloud-app/app/page.tsx
  */
 
@@ -141,7 +141,6 @@ function getVoucherDisplay(r: Transaction): string[] {
 export default function Home() {
   const [person, setPerson] = useState<"hiroshi" | "wife">("hiroshi")
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
-  // ⬇️ v2.2.12: 月絞り込み state
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
   const [rows, setRows] = useState<Transaction[]>([])
   const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([])
@@ -174,7 +173,6 @@ export default function Home() {
   const [newOrderNo, setNewOrderNo] = useState("")
   const [newHasReceipt, setNewHasReceipt] = useState(true)
 
-  // ⬇️ v2.2.12: 年・人変更時に月もリセット
   useEffect(() => {
     fetchData()
     fetchPaymentAccounts()
@@ -188,6 +186,7 @@ export default function Home() {
     setNewAccount(ACCOUNTS[key][0])
     setNewSubAccount("")
   }, [newKind])
+
   useEffect(() => {
     const filtered = filteredPaymentAccounts(newPaymentKind)
     setNewPaymentAccount(filtered[0]?.name || "")
@@ -225,7 +224,6 @@ export default function Home() {
     )
   }
 
-  // ⬇️ v2.2.12: 月フィルタ baseRows（全ての絞り込みの起点）
   const baseRows = selectedMonth
     ? rows.filter(r => parseInt(r.date.split('-')[1]) === selectedMonth)
     : rows
@@ -347,7 +345,8 @@ export default function Home() {
       sub_account: newAccount === "開業費償却" ? newSubAccount || null : null,
       amount: parseInt(newAmount),
       tax_type: TAX_TYPE[newKind], tax_rate: newTaxRate, tax_amount: newTaxAmount,
-      invoice_no: newInvoiceNo || null, method,
+      invoice_no: newInvoiceNo || null,
+      method,
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
       memo: newMemo, note: newNote, order_no: newOrderNo || null,
       has_receipt: newHasReceipt,
@@ -488,12 +487,9 @@ export default function Home() {
           style={{ padding: "8px 16px", background: person === "hiroshi" ? "#2563eb" : "#e5e7eb", color: person === "hiroshi" ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer" }}>廣！</button>
         <button onClick={() => setPerson("wife")}
           style={{ padding: "8px 16px", background: person === "wife" ? "#2563eb" : "#e5e7eb", color: person === "wife" ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer" }}>妻</button>
-        <a href="/settings"
-          style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>設定</a>
-        <a href="/import"
-          style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>取込</a>
-        <a href="/card-summary"
-          style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>💳 カード照合</a>
+        <a href="/settings" style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>設定</a>
+        <a href="/import" style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>取込</a>
+        <a href="/card-summary" style={{ padding: "8px 14px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", textDecoration: "none", color: "#374151", fontSize: "14px" }}>💳 カード照合</a>
         <a href="/staging"
           style={{ padding: "8px 14px", background: stagingCount > 0 ? "#f97316" : "#f3f4f6", border: `1px solid ${stagingCount > 0 ? "#f97316" : "#e5e7eb"}`, borderRadius: "6px", textDecoration: "none", color: stagingCount > 0 ? "white" : "#374151", fontSize: "14px", fontWeight: stagingCount > 0 ? "bold" : "normal" }}>
           📥 取込承認{stagingCount > 0 ? `（${stagingCount}件）` : ""}
@@ -508,7 +504,6 @@ export default function Home() {
           style={{ marginLeft: "auto", padding: "8px 20px", background: "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}>＋ 新規</button>
       </div>
 
-      {/* 年ボタン */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "8px", flexWrap: "wrap" }}>
         {YEARS.map(y => (
           <button key={y} onClick={() => setSelectedYear(y)}
@@ -518,7 +513,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* ⬇️ v2.2.12: 月ボタン */}
       <div style={{ display: "flex", gap: "4px", marginBottom: "12px", flexWrap: "wrap" }}>
         {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => (
           <button key={m} onClick={() => setSelectedMonth(selectedMonth === m ? null : m)}
@@ -628,6 +622,7 @@ export default function Home() {
                   <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: r.is_void ? "line-through" : "none" }}>{r.memo}</div>
                   {r.note && <div style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
                   {r.order_no && <div style={{ fontSize: "11px", color: "#f97316", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🛒 {r.order_no}</div>}
+                  {r.invoice_no && <div style={{ fontSize: "11px", color: "#7c3aed", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📋 {r.invoice_no}</div>}
                   {!r.has_receipt && !r.is_void && <div style={{ fontSize: "10px", color: "#dc2626" }}>❌証憑無</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center", whiteSpace: "nowrap" }}>
@@ -654,6 +649,7 @@ export default function Home() {
         </table>
       )}
 
+      {/* 新規入力モーダル */}
       {showForm && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -761,8 +757,9 @@ export default function Home() {
                   </button>
                 </div>
               </div>
+              {/* ⬇️ v2.2.23: 適格番号フィールド追加 */}
               <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>登録番号（任意）</label>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>適格番号（インボイス登録番号）</label>
                 <input value={newInvoiceNo} onChange={e => setNewInvoiceNo(e.target.value)} placeholder="T1234567890123"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
               </div>
@@ -807,6 +804,7 @@ export default function Home() {
         </div>
       )}
 
+      {/* 編集モーダル */}
       {editing && (
         <div style={modalOverlay}>
           <div style={modalBox}>
@@ -928,6 +926,13 @@ export default function Home() {
                   <option value="hiroshi">廣！</option>
                   <option value="wife">妻</option>
                 </select>
+              </div>
+              {/* ⬇️ v2.2.23: 適格番号フィールド追加 */}
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>適格番号（インボイス登録番号）</label>
+                <input value={editing.invoice_no || ""} onChange={e => setEditing({ ...editing, invoice_no: e.target.value })}
+                  placeholder="T1234567890123"
+                  style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>摘要</label>
