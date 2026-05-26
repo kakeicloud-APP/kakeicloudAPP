@@ -1,4 +1,4 @@
-// v2.2.15 app/api/claude/route.ts receiptにpayment_card追加
+// v2.2.16 app/api/claude/route.ts ec_order・text_ec_order追加
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
@@ -35,6 +35,7 @@ JSONのみ返してください。` }
       }]
 
     } else if (type === 'amazon') {
+      // 後方互換性のため残す
       messages = [{
         role: 'user',
         content: [
@@ -47,6 +48,29 @@ JSONのみ返してください。` }
   "tax_rate": 10,
   "order_no": "注文番号",
   "invoice_no": "インボイス番号（なければnull）",
+  "memo": "商品名を20文字以内で簡潔に",
+  "note": "商品名の詳細",
+  "account": "消耗品費"
+}
+JSONのみ返してください。` }
+        ]
+      }]
+
+    } else if (type === 'ec_order') {
+      // ⬇️ v2.2.16: EC注文書共通タイプ（Amazon・楽天・Yahoo等すべて対応）
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: imageBase64 } },
+          { type: 'text', text: `このEC注文書・注文確認画面から以下の情報をJSONで抽出してください。
+Amazon・楽天市場・Yahoo!ショッピング等すべてのECサイトに対応します。
+{
+  "date": "YYYY-MM-DD",
+  "amount": 合計金額（税込・数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 税率（8または10・数値）,
+  "order_no": "注文番号（なければnull）",
+  "invoice_no": "インボイス登録番号（T始まり13桁・なければnull）",
   "memo": "商品名を20文字以内で簡潔に",
   "note": "商品名の詳細",
   "account": "消耗品費"
@@ -125,6 +149,7 @@ JSONのみ返してください。`
       }]
 
     } else if (type === 'text_amazon') {
+      // 後方互換性のため残す
       messages = [{
         role: 'user',
         content: `以下のテキストはAmazonの注文情報です。JSON形式で抽出してください。
@@ -137,6 +162,28 @@ ${text}
   "tax_rate": 10,
   "order_no": "注文番号",
   "invoice_no": "インボイス番号（なければnull）",
+  "memo": "商品名を20文字以内で簡潔に",
+  "note": "商品名の詳細",
+  "account": "消耗品費"
+}
+JSONのみ返してください。`
+      }]
+
+    } else if (type === 'text_ec_order') {
+      // ⬇️ v2.2.16: EC注文書テキスト共通タイプ
+      messages = [{
+        role: 'user',
+        content: `以下のテキストはEC注文書・注文確認メールの内容です。JSON形式で抽出してください。
+Amazon・楽天市場・Yahoo!ショッピング等すべてのECサイトに対応します。
+${text}
+
+{
+  "date": "YYYY-MM-DD",
+  "amount": 合計金額（税込・数値）,
+  "tax_amount": 消費税額（数値）,
+  "tax_rate": 税率（8または10・数値）,
+  "order_no": "注文番号（なければnull）",
+  "invoice_no": "インボイス登録番号（T始まり13桁・なければnull）",
   "memo": "商品名を20文字以内で簡潔に",
   "note": "商品名の詳細",
   "account": "消耗品費"
