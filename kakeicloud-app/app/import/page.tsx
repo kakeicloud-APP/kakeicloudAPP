@@ -1,11 +1,11 @@
-// v2.2.17 app/import/page.tsx 3タブ完全実装：弥生/証憑/カード明細
+// v2.2.18 app/import/page.tsx レシート・EC注文書確認画面：日付・金額・摘要編集可能・重複チェック追加
 /**
- * kakeicloud v2.2.17 | 2026/05/24
+ * kakeicloud v2.2.18 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../../lib/supabase'
 import { VERSION } from '../../lib/version'
 
@@ -74,7 +74,6 @@ type ShokyoSub = 'receipt' | 'ec'
 type EcCompany = 'Amazon' | '楽天市場' | 'Yahoo!ショッピング' | 'その他'
 
 const TABS = ['弥生', '証憑', 'カード明細']
-
 const EC_COMPANIES: EcCompany[] = ['Amazon', '楽天市場', 'Yahoo!ショッピング', 'その他']
 
 const KEIJI_ACCOUNTS = [
@@ -146,6 +145,14 @@ export default function ImportPage() {
   const [swipeStart, setSwipeStart] = useState<{ id: string; x: number } | null>(null)
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
+
+  // ⬇️ v2.2.18: 編集用ref（INPUT RULE準拠）
+  const receiptDateRef = useRef<HTMLInputElement>(null)
+  const receiptAmountRef = useRef<HTMLInputElement>(null)
+  const receiptMemoRef = useRef<HTMLInputElement>(null)
+  const ecDateRef = useRef<HTMLInputElement>(null)
+  const ecAmountRef = useRef<HTMLInputElement>(null)
+  const ecMemoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchMasters() }, [person])
   useEffect(() => {
@@ -233,6 +240,24 @@ export default function ImportPage() {
     })
   }
 
+  // ⬇️ v2.2.18: 重複チェック共通関数
+  async function checkDuplicate(date: string, amount: number): Promise<boolean> {
+    const d = new Date(date)
+    const min = new Date(d); min.setDate(min.getDate() - 10)
+    const max = new Date(d); max.setDate(max.getDate() + 10)
+    const { data } = await supabase
+      .from('transactions')
+      .select('id, date, account, amount, memo')
+      .eq('amount', amount)
+      .eq('is_void', false)
+      .gte('date', min.toISOString().split('T')[0])
+      .lte('date', max.toISOString().split('T')[0])
+      .limit(3)
+    if (!data || data.length === 0) return true
+    const info = data.map(d => `${d.date}　${d.account}　¥${d.amount.toLocaleString()}\n${d.memo}`).join('\n\n')
+    return confirm(`⚠️ 似たデータが既に登録されています\n\n${info}\n\n続けて登録しますか？`)
+  }
+
   async function handleSummaryImport() {
     if (!summarySlot) return
     if (!selectedAccountId) { alert('口座を選択してください'); return }
@@ -254,34 +279,28 @@ export default function ImportPage() {
       if (error) throw new Error(error.message)
       setSummaryImportId(ci.id)
     } catch (error: any) {
-      setErrorMsg(error.message)
-      alert(error.message)
-    } finally {
-      setProcessingSummary(false)
-    }
+      setErrorMsg(error.message); alert(error.message)
+    } finally { setProcessingSummary(false) }
   }
 
   async function handleYayoiFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
-    setErrorMsg(null)
+    setLoading(true); setErrorMsg(null)
     try {
       const parsed = applyRules(parseYayoiCSV(await file.text()))
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setLoading(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setLoading(false) }
   }
 
   async function handleReceiptFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
-    setErrorMsg(null)
+    setLoading(true); setErrorMsg(null)
     try {
       const base64 = await fileToBase64(file)
       const json = await callApi({ type: 'receipt', imageBase64: base64, mediaType: file.type || 'image/jpeg' })
@@ -289,34 +308,30 @@ export default function ImportPage() {
       setReceiptData(json.data)
       setReceiptKind('keiji')
       setReceiptAccount(json.data.account || KEIJI_ACCOUNTS[0])
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setLoading(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setLoading(false) }
   }
 
   async function handleEcFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
-    setErrorMsg(null)
+    setLoading(true); setErrorMsg(null)
     try {
       const base64 = await fileToBase64(file)
       const json = await callApi({ type: 'ec_order', imageBase64: base64, mediaType: file.type || 'image/jpeg' })
       if (!json.data) throw new Error('no data')
       setEcOrderData(json.data)
       setEcOrderAccount(json.data.account || KEIJI_ACCOUNTS[0])
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setLoading(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setLoading(false) }
   }
 
   async function handlePDFFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    setLoading(true)
-    setErrorMsg(null)
+    setLoading(true); setErrorMsg(null)
     try {
       const base64 = await fileToBase64(file)
       const json = await callApi({ type: 'pdf', imageBase64: base64, mediaType: 'application/pdf' })
@@ -328,16 +343,14 @@ export default function ImportPage() {
       })))
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setLoading(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setLoading(false) }
   }
 
   async function handleCardImages() {
     const filledSlots = cardImageSlots.filter(s => s !== null) as File[]
     if (filledSlots.length === 0) { alert('画像を追加してください'); return }
-    setProcessingImages(true)
-    setErrorMsg(null)
+    setProcessingImages(true); setErrorMsg(null)
     let allRows: ImportRow[] = [...rows]
     try {
       for (let i = 0; i < filledSlots.length; i++) {
@@ -358,15 +371,13 @@ export default function ImportPage() {
       setCardImageSlots(Array(10).fill(null))
       setImageProgress('')
       if (allRows.length === 0) alert('data not found')
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setProcessingImages(false); setImageProgress('') }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setProcessingImages(false); setImageProgress('') }
   }
 
   async function handleTextRead() {
     if (!textInput.trim()) { alert('テキストを入力してください'); return }
-    setLoadingText(true)
-    setErrorMsg(null)
+    setLoadingText(true); setErrorMsg(null)
     try {
       if (tab === '証憑' && shokyoSub === 'receipt') {
         const json = await callApi({ type: 'text_receipt', text: textInput })
@@ -392,43 +403,55 @@ export default function ImportPage() {
         setRows(applyRules(parsed))
         setShowTextArea(false)
       }
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setLoadingText(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setLoadingText(false) }
   }
 
+  // ⬇️ v2.2.18: refから値を読んで保存・重複チェック追加
   async function saveReceipt() {
     if (!receiptData) return
     setSavingReceipt(true)
     try {
       if (receiptKind === 'kaji') { setReceiptData(null); alert('家事として記録しました'); return }
+      const date = receiptDateRef.current?.value || receiptData.date
+      const amount = parseInt(receiptAmountRef.current?.value || String(receiptData.amount)) || receiptData.amount
+      const memo = receiptMemoRef.current?.value || receiptData.memo || receiptData.store_name
       const account = receiptKind === 'keiji' ? receiptAccount : KIND_TO_ACCOUNT[receiptKind]
-      const year = parseInt(receiptData.date.split('-')[0])
+      const year = parseInt(date.split('-')[0])
+
+      const ok = await checkDuplicate(date, amount)
+      if (!ok) return
+
       const { error } = await supabase.from('transactions').insert({
-        person, date: receiptData.date, account, amount: receiptData.amount,
+        person, date, account, amount,
         tax_type: KIND_TO_TAX_TYPE[receiptKind],
         tax_rate: receiptKind === 'keiji' ? receiptData.tax_rate : 0,
         tax_amount: receiptKind === 'keiji' ? receiptData.tax_amount : 0,
         invoice_no: receiptData.invoice_no || null,
         method: receiptData.payment_card ? '未払金' : '現金',
         payment_account: receiptData.payment_card || null,
-        memo: receiptData.memo || receiptData.store_name,
+        memo,
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: true,
       })
       if (error) throw new Error(error.message)
       setReceiptData(null)
       setTextInput('')
       alert('登録しました')
-    } catch (e: any) {
-      alert(`save error: ${e.message}`)
-    } finally { setSavingReceipt(false) }
+    } catch (e: any) { alert(`save error: ${e.message}`) }
+    finally { setSavingReceipt(false) }
   }
 
+  // ⬇️ v2.2.18: refから値を読んで保存・重複チェック追加
   async function saveEcOrder() {
     if (!ecOrderData) return
     setSavingEcOrder(true)
     try {
       const paymentName = ecCompany === 'その他' ? (ecCompanyOther || 'その他EC') : ecCompany
+      const date = ecDateRef.current?.value || ecOrderData.date
+      const amount = parseInt(ecAmountRef.current?.value || String(ecOrderData.amount)) || ecOrderData.amount
+      const memo = ecMemoRef.current?.value || ecOrderData.memo
+      const year = parseInt(date.split('-')[0])
+
       if (ecOrderData.order_no) {
         const { data: existing } = await supabase
           .from('transactions').select('id, date, memo').eq('order_no', ecOrderData.order_no).limit(1)
@@ -437,11 +460,13 @@ export default function ImportPage() {
           const go = confirm(`⚠️ 注文番号 ${ecOrderData.order_no} はすでに登録されています。\n日付：${dup.date}\n摘要：${dup.memo}\n\n続けますか？`)
           if (!go) { setSavingEcOrder(false); return }
         }
+      } else {
+        const ok = await checkDuplicate(date, amount)
+        if (!ok) return
       }
-      const year = parseInt(ecOrderData.date.split('-')[0])
+
       const { error } = await supabase.from('transactions').insert({
-        person, date: ecOrderData.date, account: ecOrderAccount,
-        amount: ecOrderData.amount,
+        person, date, account: ecOrderAccount, amount,
         tax_type: '課税仕入',
         tax_rate: ecOrderData.tax_rate || 10,
         tax_amount: ecOrderData.tax_amount || 0,
@@ -449,7 +474,7 @@ export default function ImportPage() {
         method: '未払金',
         payment_account: paymentName,
         memo: `${paymentName}証憑より`,
-        note: ecOrderData.memo || null,
+        note: memo || null,
         order_no: ecOrderData.order_no || null,
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
       })
@@ -457,9 +482,8 @@ export default function ImportPage() {
       setEcOrderData(null)
       setTextInput('')
       alert('登録しました')
-    } catch (e: any) {
-      alert(`save error: ${e.message}`)
-    } finally { setSavingEcOrder(false) }
+    } catch (e: any) { alert(`save error: ${e.message}`) }
+    finally { setSavingEcOrder(false) }
   }
 
   async function saveRows() {
@@ -502,9 +526,8 @@ export default function ImportPage() {
       alert(`${rows.length}件を保存しました`)
       setRows([])
       setExpandedRowId(null)
-    } catch (error: any) {
-      alert(`save error: ${error.message}`)
-    } finally { setSaving(false) }
+    } catch (error: any) { alert(`save error: ${error.message}`) }
+    finally { setSaving(false) }
   }
 
   function updateRow(id: string, patch: Partial<ImportRow>) {
@@ -563,7 +586,6 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* 人選択 */}
       <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 20px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
@@ -571,7 +593,6 @@ export default function ImportPage() {
           style={{ padding: '8px 20px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
       </div>
 
-      {/* 3タブ */}
       <div style={{ display: 'flex', gap: '4px', marginBottom: '16px' }}>
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
@@ -583,23 +604,20 @@ export default function ImportPage() {
 
       {/* ━━━━ 弥生タブ ━━━━ */}
       {tab === '弥生' && (
-        <>
-          <div style={{ position: 'relative', marginBottom: '16px' }}>
-            <div style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px', boxSizing: 'border-box' }}>
-              {loading ? '解析中...' : '📁 弥生CSVファイルを選択'}
-            </div>
-            {!loading && (
-              <input type="file" accept=".csv" onChange={handleYayoiFile}
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
-            )}
+        <div style={{ position: 'relative', marginBottom: '16px' }}>
+          <div style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px', boxSizing: 'border-box' }}>
+            {loading ? '解析中...' : '📁 弥生CSVファイルを選択'}
           </div>
-        </>
+          {!loading && (
+            <input type="file" accept=".csv" onChange={handleYayoiFile}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+          )}
+        </div>
       )}
 
       {/* ━━━━ 証憑タブ ━━━━ */}
       {tab === '証憑' && (
         <>
-          {/* サブ選択：レシート / EC注文書 */}
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
             {([
               { key: 'receipt', label: '🧾 レシート' },
@@ -612,7 +630,7 @@ export default function ImportPage() {
             ))}
           </div>
 
-          {/* レシート */}
+          {/* レシート撮影 */}
           {shokyoSub === 'receipt' && !receiptData && (
             <>
               <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
@@ -655,18 +673,56 @@ export default function ImportPage() {
             </>
           )}
 
-          {/* レシート確認 */}
+          {/* ⬇️ v2.2.18: レシート確認（編集可能フィールド追加） */}
           {shokyoSub === 'receipt' && receiptData && (
             <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>🧾 AI読取完了 - 内容確認</div>
-              <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{receiptData.date}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>店名</span><span>{receiptData.store_name}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{receiptData.amount.toLocaleString()}</span></div>
-                {receiptData.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>消費税</span><span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span></div>}
-                {receiptData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span></div>}
-                {receiptData.payment_card && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>支払カード</span><span style={{ color: '#2563eb', fontWeight: 'bold' }}>💳 {receiptData.payment_card}</span></div>}
+              <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>
+                🧾 この内容で正しいですか？
               </div>
+              <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
+
+                {/* 日付：編集可 */}
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                  <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
+                  <input ref={receiptDateRef} type="date" defaultValue={receiptData.date}
+                    style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
+                </div>
+
+                {/* 金額：編集可 */}
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                  <span style={{ color: '#6b7280', minWidth: '60px' }}>金額</span>
+                  <input ref={receiptAmountRef} type="number" defaultValue={receiptData.amount}
+                    style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold' }} />
+                </div>
+
+                {/* 摘要：編集可 */}
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                  <span style={{ color: '#6b7280', minWidth: '60px' }}>摘要</span>
+                  <input ref={receiptMemoRef} type="text" defaultValue={receiptData.memo || receiptData.store_name}
+                    style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
+                </div>
+
+                {/* 表示のみ */}
+                {receiptData.tax_amount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: '#6b7280' }}>消費税</span>
+                    <span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span>
+                  </div>
+                )}
+                {receiptData.invoice_no && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: '#6b7280' }}>登録番号</span>
+                    <span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span>
+                  </div>
+                )}
+                {receiptData.payment_card && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: '#6b7280' }}>支払カード</span>
+                    <span style={{ color: '#2563eb', fontWeight: 'bold' }}>💳 {receiptData.payment_card}</span>
+                  </div>
+                )}
+              </div>
+
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>種別</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -701,7 +757,6 @@ export default function ImportPage() {
           {/* EC注文書 */}
           {shokyoSub === 'ec' && (
             <>
-              {/* EC会社選択 */}
               <div style={{ marginBottom: '16px' }}>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>EC会社</div>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: ecCompany === 'その他' ? '8px' : '0' }}>
@@ -761,20 +816,50 @@ export default function ImportPage() {
                 </>
               )}
 
-              {/* EC注文確認 */}
+              {/* ⬇️ v2.2.18: EC注文確認（編集可能フィールド追加） */}
               {ecOrderData && (
                 <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>
-                    🛒 {ecCompany === 'その他' ? (ecCompanyOther || 'EC') : ecCompany} AI読取完了 - 内容確認
+                    🛒 この内容で正しいですか？（{ecCompany === 'その他' ? (ecCompanyOther || 'EC') : ecCompany}）
                   </div>
                   <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{ecOrderData.date}</span></div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{ecOrderData.amount.toLocaleString()}</span></div>
-                    {ecOrderData.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>消費税</span><span>¥{ecOrderData.tax_amount.toLocaleString()}（{ecOrderData.tax_rate}%）</span></div>}
-                    <div style={{ marginBottom: '4px' }}><span style={{ color: '#6b7280', fontSize: '12px' }}>商品概要：</span><span style={{ fontSize: '12px' }}>{ecOrderData.memo}</span></div>
-                    {ecOrderData.order_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>注文番号</span><span style={{ fontSize: '11px' }}>{ecOrderData.order_no}</span></div>}
-                    {ecOrderData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px', color: '#7c3aed' }}>{ecOrderData.invoice_no}</span></div>}
+
+                    {/* 日付：編集可 */}
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                      <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
+                      <input ref={ecDateRef} type="date" defaultValue={ecOrderData.date}
+                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
+                    </div>
+
+                    {/* 金額：編集可 */}
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                      <span style={{ color: '#6b7280', minWidth: '60px' }}>金額</span>
+                      <input ref={ecAmountRef} type="number" defaultValue={ecOrderData.amount}
+                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold' }} />
+                    </div>
+
+                    {/* 商品概要：編集可（memoとして保存） */}
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                      <span style={{ color: '#6b7280', minWidth: '60px' }}>商品概要</span>
+                      <input ref={ecMemoRef} type="text" defaultValue={ecOrderData.memo}
+                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
+                    </div>
+
+                    {/* 表示のみ */}
+                    {ecOrderData.order_no && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ color: '#6b7280' }}>注文番号</span>
+                        <span style={{ fontSize: '11px' }}>{ecOrderData.order_no}</span>
+                      </div>
+                    )}
+                    {ecOrderData.invoice_no && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ color: '#6b7280' }}>登録番号</span>
+                        <span style={{ fontSize: '11px', color: '#7c3aed' }}>{ecOrderData.invoice_no}</span>
+                      </div>
+                    )}
                   </div>
+
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
                     <select value={ecOrderAccount} onChange={e => setEcOrderAccount(e.target.value)}
@@ -800,7 +885,6 @@ export default function ImportPage() {
       {/* ━━━━ カード明細タブ ━━━━ */}
       {tab === 'カード明細' && (
         <>
-          {/* 口座選択（payment_accountsマスター） */}
           <div style={{ marginBottom: '16px' }}>
             <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>口座選択</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -821,7 +905,6 @@ export default function ImportPage() {
             </div>
           </div>
 
-          {/* カード口座：image + PDF */}
           {selectedAccountId && isCardAccount && (
             <>
               {/* Step1: サマリー */}
@@ -959,7 +1042,6 @@ export default function ImportPage() {
             </>
           )}
 
-          {/* 銀行口座：準備中 */}
           {selectedAccountId && !isCardAccount && (
             <div style={{ background: '#f8fafc', border: '2px dashed #e5e7eb', borderRadius: '12px', padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '14px', lineHeight: 1.8 }}>
               🏦 銀行明細CSV取込<br />
