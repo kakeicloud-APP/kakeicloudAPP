@@ -1,4 +1,4 @@
-// v2.2.13 app/api/claude/route.ts card_image・pdfにETCインター情報のnote対応
+// v2.2.14 app/api/claude/route.ts card_image・pdfにinvoice_no取得追加
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
@@ -62,7 +62,8 @@ JSONのみ返してください。` }
           { type: 'text', text: `このPDFの明細から取引一覧をJSONで抽出してください。
 ETCカード売上の次の行に乗り場・降り場情報がある場合は、noteフィールドに「乗り場→降り場」形式で入れてください。
 ETCカード売上以外はnoteはnullにしてください。
-[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"note":"乗り場→降り場またはnull"}]
+インボイス登録番号（T始まり13桁）が記載されている場合はinvoice_noに入れてください。なければnullにしてください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"note":"乗り場→降り場またはnull","invoice_no":"T始まりの番号またはnull"}]
 配列のみ返してください。` }
         ]
       }]
@@ -79,7 +80,8 @@ ETCカード売上以外はnoteはnullにしてください。
 マイナス金額（返金）は除外してください。
 ETCカード売上の次の行に乗り場・降り場情報がある場合は、noteフィールドに「乗り場→降り場」形式で入れてください。
 ETCカード売上以外はnoteはnullにしてください。
-[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"person":"hiroshi または wife","note":"乗り場→降り場またはnull"}]
+インボイス登録番号（T始まり13桁）が記載されている場合はinvoice_noに入れてください。なければnullにしてください。
+[{"date":"YYYY-MM-DD","description":"店名","amount":金額,"person":"hiroshi または wife","note":"乗り場→降り場またはnull","invoice_no":"T始まりの番号またはnull"}]
 配列のみ返してください。` }
         ]
       }]
