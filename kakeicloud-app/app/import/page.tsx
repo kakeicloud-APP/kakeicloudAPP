@@ -1,6 +1,6 @@
-// v2.2.20 app/import/page.tsx card_detailsへのinvoice_no保存追加
+// v2.2.24 app/import/page.tsx EC確認画面に人選択・EC会社変更を追加
 /**
- * kakeicloud v2.2.20 | 2026/05/24
+ * kakeicloud v2.2.24 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -19,7 +19,7 @@ type ImportRow = {
   person?: string
   memo?: string
   note?: string
-  invoice_no?: string  // ⬅️ v2.2.20追加
+  invoice_no?: string
 }
 
 type ClassificationRule = {
@@ -118,6 +118,7 @@ export default function ImportPage() {
   const [shokyoSub, setShokyoSub] = useState<ShokyoSub>('receipt')
   const [ecCompany, setEcCompany] = useState<EcCompany>('Amazon')
   const [ecCompanyOther, setEcCompanyOther] = useState('')
+  const [ecPerson, setEcPerson] = useState<'hiroshi' | 'wife'>('hiroshi')  // ⬅️ v2.2.24
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -171,6 +172,9 @@ export default function ImportPage() {
     setShokyoSub('receipt')
     setSelectedAccountId('')
   }, [tab])
+
+  // ⬇️ v2.2.24: person変更時にecPersonも同期
+  useEffect(() => { setEcPerson(person) }, [person])
 
   async function fetchMasters() {
     const [{ data: r }, { data: p }] = await Promise.all([
@@ -320,11 +324,11 @@ export default function ImportPage() {
       if (!json.data) throw new Error('no data')
       setEcOrderData(json.data)
       setEcOrderAccount(json.data.account || KEIJI_ACCOUNTS[0])
+      setEcPerson(person)  // ⬅️ v2.2.24: 読み取り時にpersonを引き継ぐ
     } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
     finally { setLoading(false) }
   }
 
-  // ⬇️ v2.2.20: invoice_no取得追加
   async function handlePDFFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -337,8 +341,7 @@ export default function ImportPage() {
       const parsed = applyRules(json.data.map((d: any, i: number) => ({
         id: `pdf-${i}`, date: d.date || '', description: d.description || '',
         amount: Math.abs(d.amount || 0), status: 'pending' as const,
-        note: d.note || undefined,
-        invoice_no: d.invoice_no || undefined,  // ⬅️ v2.2.20
+        note: d.note || undefined, invoice_no: d.invoice_no || undefined,
       })))
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
@@ -346,7 +349,6 @@ export default function ImportPage() {
     finally { setLoading(false) }
   }
 
-  // ⬇️ v2.2.20: invoice_no取得追加
   async function handleCardImages() {
     const filledSlots = cardImageSlots.filter(s => s !== null) as File[]
     if (filledSlots.length === 0) { alert('画像を追加してください'); return }
@@ -363,8 +365,7 @@ export default function ImportPage() {
           amount: Math.abs(d.amount || 0), status: 'pending' as const,
           person: d.person || 'hiroshi',
           memo: `カード：${d.description || ''}`,
-          note: d.note || undefined,
-          invoice_no: d.invoice_no || undefined,  // ⬅️ v2.2.20
+          note: d.note || undefined, invoice_no: d.invoice_no || undefined,
         }))
         allRows = [...allRows, ...applyRules(parsed)]
       }
@@ -392,6 +393,7 @@ export default function ImportPage() {
         if (!json.data) throw new Error('no data')
         setEcOrderData(json.data)
         setEcOrderAccount(json.data.account || KEIJI_ACCOUNTS[0])
+        setEcPerson(person)  // ⬅️ v2.2.24
         setShowTextArea(false)
       } else if (tab === 'カード明細') {
         const json = await callApi({ type: 'text_card', text: textInput })
@@ -438,6 +440,7 @@ export default function ImportPage() {
     finally { setSavingReceipt(false) }
   }
 
+  // ⬇️ v2.2.24: ecPersonを使用
   async function saveEcOrder() {
     if (!ecOrderData) return
     setSavingEcOrder(true)
@@ -460,7 +463,8 @@ export default function ImportPage() {
         if (!ok) return
       }
       const { error } = await supabase.from('transactions').insert({
-        person, date, account: ecOrderAccount, amount,
+        person: ecPerson,  // ⬅️ v2.2.24: ecPersonを使用
+        date, account: ecOrderAccount, amount,
         tax_type: '課税仕入', tax_rate: ecOrderData.tax_rate || 10,
         tax_amount: ecOrderData.tax_amount || 0,
         invoice_no: ecOrderData.invoice_no || null,
@@ -476,7 +480,6 @@ export default function ImportPage() {
     finally { setSavingEcOrder(false) }
   }
 
-  // ⬇️ v2.2.20: card_details保存にinvoice_no追加
   async function saveRows() {
     if (rows.length === 0) { alert('データがありません'); return }
     const isYayoi = tab === '弥生'
@@ -511,7 +514,7 @@ export default function ImportPage() {
             memo: r.memo || null, note: r.note || null,
             source_name: sourceName, source_type: sourceType,
             matched_transaction_id: null,
-            invoice_no: r.invoice_no || null,  // ⬅️ v2.2.20
+            invoice_no: r.invoice_no || null,
           })
         }
       }
@@ -621,6 +624,7 @@ export default function ImportPage() {
             ))}
           </div>
 
+          {/* レシート撮影 */}
           {shokyoSub === 'receipt' && !receiptData && (
             <>
               <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
@@ -663,6 +667,7 @@ export default function ImportPage() {
             </>
           )}
 
+          {/* レシート確認 */}
           {shokyoSub === 'receipt' && receiptData && (
             <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
               <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>🧾 この内容で正しいですか？</div>
@@ -732,27 +737,28 @@ export default function ImportPage() {
             </div>
           )}
 
+          {/* EC注文書 */}
           {shokyoSub === 'ec' && (
             <>
-              <div style={{ marginBottom: '16px' }}>
-                <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>EC会社</div>
-                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: ecCompany === 'その他' ? '8px' : '0' }}>
-                  {EC_COMPANIES.map(c => (
-                    <button key={c} onClick={() => setEcCompany(c)}
-                      style={{ padding: '8px 16px', background: ecCompany === c ? '#f97316' : '#f3f4f6', color: ecCompany === c ? 'white' : '#374151', border: `2px solid ${ecCompany === c ? '#f97316' : '#e5e7eb'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: ecCompany === c ? 'bold' : 'normal' }}>
-                      {c}
-                    </button>
-                  ))}
-                </div>
-                {ecCompany === 'その他' && (
-                  <input value={ecCompanyOther} onChange={e => setEcCompanyOther(e.target.value)}
-                    placeholder="EC会社名を入力"
-                    style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', marginTop: '8px' }} />
-                )}
-              </div>
-
+              {/* EC会社選択（確認前） */}
               {!ecOrderData && (
                 <>
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}>EC会社</div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: ecCompany === 'その他' ? '8px' : '0' }}>
+                      {EC_COMPANIES.map(c => (
+                        <button key={c} onClick={() => setEcCompany(c)}
+                          style={{ padding: '8px 16px', background: ecCompany === c ? '#f97316' : '#f3f4f6', color: ecCompany === c ? 'white' : '#374151', border: `2px solid ${ecCompany === c ? '#f97316' : '#e5e7eb'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: ecCompany === c ? 'bold' : 'normal' }}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                    {ecCompany === 'その他' && (
+                      <input value={ecCompanyOther} onChange={e => setEcCompanyOther(e.target.value)}
+                        placeholder="EC会社名を入力"
+                        style={{ width: '100%', padding: '10px', border: '1px solid #e5e7eb', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', marginTop: '8px' }} />
+                    )}
+                  </div>
                   <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
                     <div style={{ flex: 1, position: 'relative' }}>
                       <div style={{ padding: '14px', background: loading ? '#9ca3af' : '#f97316', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px' }}>
@@ -793,11 +799,46 @@ export default function ImportPage() {
                 </>
               )}
 
+              {/* ⬇️ v2.2.24: EC注文確認（人選択・EC会社変更追加） */}
               {ecOrderData && (
                 <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>
-                    🛒 この内容で正しいですか？（{ecCompany === 'その他' ? (ecCompanyOther || 'EC') : ecCompany}）
+                    🛒 この内容で正しいですか？
                   </div>
+
+                  {/* EC会社変更（確認画面内） */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>EC会社</label>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {EC_COMPANIES.map(c => (
+                        <button key={c} onClick={() => setEcCompany(c)}
+                          style={{ padding: '6px 12px', background: ecCompany === c ? '#f97316' : '#f3f4f6', color: ecCompany === c ? 'white' : '#374151', border: `2px solid ${ecCompany === c ? '#f97316' : '#e5e7eb'}`, borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: ecCompany === c ? 'bold' : 'normal' }}>
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                    {ecCompany === 'その他' && (
+                      <input value={ecCompanyOther} onChange={e => setEcCompanyOther(e.target.value)}
+                        placeholder="EC会社名を入力"
+                        style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', marginTop: '6px' }} />
+                    )}
+                  </div>
+
+                  {/* 人選択（確認画面内） */}
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>登録者</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => setEcPerson('hiroshi')}
+                        style={{ flex: 1, padding: '8px', background: ecPerson === 'hiroshi' ? '#2563eb' : '#f3f4f6', color: ecPerson === 'hiroshi' ? 'white' : '#374151', border: `2px solid ${ecPerson === 'hiroshi' ? '#2563eb' : '#e5e7eb'}`, borderRadius: '8px', cursor: 'pointer', fontWeight: ecPerson === 'hiroshi' ? 'bold' : 'normal', fontSize: '14px' }}>
+                        廣！
+                      </button>
+                      <button onClick={() => setEcPerson('wife')}
+                        style={{ flex: 1, padding: '8px', background: ecPerson === 'wife' ? '#2563eb' : '#f3f4f6', color: ecPerson === 'wife' ? 'white' : '#374151', border: `2px solid ${ecPerson === 'wife' ? '#2563eb' : '#e5e7eb'}`, borderRadius: '8px', cursor: 'pointer', fontWeight: ecPerson === 'wife' ? 'bold' : 'normal', fontSize: '14px' }}>
+                        妻
+                      </button>
+                    </div>
+                  </div>
+
                   <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                       <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
@@ -827,6 +868,7 @@ export default function ImportPage() {
                       </div>
                     )}
                   </div>
+
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
                     <select value={ecOrderAccount} onChange={e => setEcOrderAccount(e.target.value)}
@@ -837,7 +879,7 @@ export default function ImportPage() {
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={saveEcOrder} disabled={savingEcOrder}
                       style={{ flex: 1, padding: '14px', background: savingEcOrder ? '#9ca3af' : '#f97316', color: 'white', border: 'none', borderRadius: '8px', cursor: savingEcOrder ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px' }}>
-                      {savingEcOrder ? '登録中...' : '💾 登録'}
+                      {savingEcOrder ? '登録中...' : `💾 ${ecPerson === 'hiroshi' ? '廣！' : '妻'}で登録`}
                     </button>
                     <button onClick={() => setEcOrderData(null)}
                       style={{ padding: '14px 20px', background: '#e5e7eb', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>やり直し</button>
@@ -866,7 +908,7 @@ export default function ImportPage() {
                     fontSize: '14px', fontWeight: selectedAccountId === a.id ? 'bold' : 'normal',
                     minWidth: '140px',
                   }}>
-                  {selectedAccount?.kind === 'カード' ? '💳' : '🏦'} {a.name}
+                  {a.kind === 'カード' ? '💳' : '🏦'} {a.name}
                 </button>
               ))}
             </div>
