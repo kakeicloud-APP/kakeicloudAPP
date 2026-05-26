@@ -1,6 +1,6 @@
-// v2.2.11 app/card-summary/page.tsx card_details参照・delete廃止・status管理・印刷ボタン
+// v2.2.19 app/card-summary/page.tsx approveItemに重複チェック追加
 /**
- * kakeicloud v2.2.11 | 2026/05/24
+ * kakeicloud v2.2.19 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -73,18 +73,10 @@ function AccountSelect({ value, onChange }: { value: string; onChange: (v: strin
   return (
     <select value={value} onChange={e => onChange(e.target.value)}
       style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
-      <optgroup label="経費">
-        {ALL_ACCOUNTS.keiji.map(a => <option key={a} value={a}>{a}</option>)}
-      </optgroup>
-      <optgroup label="売上">
-        {ALL_ACCOUNTS.uriage.map(a => <option key={a} value={a}>{a}</option>)}
-      </optgroup>
-      <optgroup label="控除">
-        {ALL_ACCOUNTS.kojyo.map(a => <option key={a} value={a}>{a}</option>)}
-      </optgroup>
-      <optgroup label="その他">
-        {ALL_ACCOUNTS.sonota.map(a => <option key={a} value={a}>{a}</option>)}
-      </optgroup>
+      <optgroup label="経費">{ALL_ACCOUNTS.keiji.map(a => <option key={a} value={a}>{a}</option>)}</optgroup>
+      <optgroup label="売上">{ALL_ACCOUNTS.uriage.map(a => <option key={a} value={a}>{a}</option>)}</optgroup>
+      <optgroup label="控除">{ALL_ACCOUNTS.kojyo.map(a => <option key={a} value={a}>{a}</option>)}</optgroup>
+      <optgroup label="その他">{ALL_ACCOUNTS.sonota.map(a => <option key={a} value={a}>{a}</option>)}</optgroup>
     </select>
   )
 }
@@ -108,7 +100,6 @@ export default function CardSummaryPage() {
     if (selectedSummary) fetchMatchCandidates(selectedSummary)
   }, [selectedMonth, selectedCard])
 
-  // ⬇️ v2.2.11: import_staging → card_details
   async function fetchData() {
     setLoading(true)
     const { data: ci } = await supabase
@@ -167,7 +158,6 @@ export default function CardSummaryPage() {
     maxDate.setDate(maxDate.getDate() + 10)
 
     const amounts = [...new Set(activeStaging.map(i => i.amount))]
-
     const { data } = await supabase
       .from('transactions')
       .select('id, person, date, account, amount, memo, note, voucher_no')
@@ -196,7 +186,6 @@ export default function CardSummaryPage() {
     setEditMap(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }))
   }
 
-  // ⬇️ v2.2.11: statusをローカルで更新するヘルパー
   function updateStagingStatus(summaryId: string, itemId: string, status: string) {
     setStagingMap(prev => ({
       ...prev,
@@ -220,21 +209,34 @@ export default function CardSummaryPage() {
     return `${prefix}${year}-${String(nextNum).padStart(4, '0')}`
   }
 
-  // ⬇️ v2.2.11: delete廃止 → status='keiji' + matched_transaction_id更新
+  // ⬇️ v2.2.19: 重複チェック共通関数
+  async function checkDuplicate(date: string, amount: number): Promise<boolean> {
+    const d = new Date(date)
+    const min = new Date(d); min.setDate(min.getDate() - 10)
+    const max = new Date(d); max.setDate(max.getDate() + 10)
+    const { data } = await supabase
+      .from('transactions')
+      .select('id, date, account, amount, memo')
+      .eq('amount', amount)
+      .eq('is_void', false)
+      .gte('date', min.toISOString().split('T')[0])
+      .lte('date', max.toISOString().split('T')[0])
+      .limit(3)
+    if (!data || data.length === 0) return true
+    const info = data.map(d => `${d.date}　${d.account}　¥${d.amount.toLocaleString()}\n${d.memo}`).join('\n\n')
+    return confirm(`⚠️ 似たデータが既に登録されています\n\n${info}\n\n続けて登録しますか？`)
+  }
+
   async function confirmMatch(item: StagingItem, candidate: MatchCandidate, summary: CardImport) {
     setMatchingId(item.id)
     try {
       const updateData: any = { card_import_id: summary.id }
-      if (!candidate.memo) {
-        updateData.memo = `カード：${item.description}`
-      }
+      if (!candidate.memo) updateData.memo = `カード：${item.description}`
+
       const { error: txError } = await supabase
-        .from('transactions')
-        .update(updateData)
-        .eq('id', candidate.id)
+        .from('transactions').update(updateData).eq('id', candidate.id)
       if (txError) throw new Error(txError.message)
 
-      // ⬇️ deleteの代わりにstatus更新
       const { error: cdError } = await supabase
         .from('card_details')
         .update({ status: 'keiji', matched_transaction_id: candidate.id })
@@ -263,14 +265,19 @@ export default function CardSummaryPage() {
     }
   }
 
-  // ⬇️ v2.2.11: delete廃止 → status='keiji'更新
+  // ⬇️ v2.2.19: approveItemに重複チェック追加
   async function approveItem(item: StagingItem, summary: CardImport) {
     const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
     setApprovingId(item.id)
     try {
+      // 重複チェック
+      const ok = await checkDuplicate(item.date, item.amount)
+      if (!ok) { setApprovingId(null); return }
+
       const year = parseInt(item.date.split('-')[0])
       const voucherNo = await generateVoucherNo(item.person, year)
       const taxAmount = Math.round(item.amount * 10 / 110)
+
       const { error: txError } = await supabase.from('transactions').insert({
         person: item.person,
         date: item.date,
@@ -294,11 +301,8 @@ export default function CardSummaryPage() {
       })
       if (txError) throw new Error(txError.message)
 
-      // ⬇️ deleteの代わりにstatus更新
       const { error: cdError } = await supabase
-        .from('card_details')
-        .update({ status: 'keiji' })
-        .eq('id', item.id)
+        .from('card_details').update({ status: 'keiji' }).eq('id', item.id)
       if (cdError) throw new Error(cdError.message)
 
       updateStagingStatus(summary.id, item.id, 'keiji')
@@ -318,23 +322,17 @@ export default function CardSummaryPage() {
     }
   }
 
-  // ⬇️ v2.2.11: delete廃止 → status='kataji'更新
   async function markAsKataji(item: StagingItem, summary: CardImport) {
     if (!confirm(`「${item.description}」を家事として除外しますか？`)) return
     const { error } = await supabase
-      .from('card_details')
-      .update({ status: 'kataji' })
-      .eq('id', item.id)
+      .from('card_details').update({ status: 'kataji' }).eq('id', item.id)
     if (error) { alert(`エラー: ${error.message}`); return }
     updateStagingStatus(summary.id, item.id, 'kataji')
   }
 
-  // ⬇️ v2.2.11: 家事→pending に戻す（deleteの代わり）
   async function restoreFromKataji(item: StagingItem, summary: CardImport) {
     const { error } = await supabase
-      .from('card_details')
-      .update({ status: 'pending' })
-      .eq('id', item.id)
+      .from('card_details').update({ status: 'pending' }).eq('id', item.id)
     if (error) { alert(`エラー: ${error.message}`); return }
     updateStagingStatus(summary.id, item.id, 'pending')
   }
@@ -354,7 +352,7 @@ export default function CardSummaryPage() {
 
       <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
         <a href="/" style={{ padding: '8px 16px', background: '#e5e7eb', borderRadius: '6px', textDecoration: 'none', color: 'black', fontSize: '14px' }}>← 戻る</a>
-        <h1 style={{ margin: 0, fontSize: '20px' }}>カード明細照合</h1>
+        <h1 style={{ margin: 0, fontSize: '20px' }}>カード照合</h1>
         <span style={{ fontSize: '11px', color: '#9ca3af', marginLeft: 'auto' }}>{VERSION}</span>
       </div>
 
@@ -367,7 +365,7 @@ export default function CardSummaryPage() {
             {cardTypes.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '14px', lineHeight: 1.8 }}>
                 サマリーデータがありません。<br />
-                取込ページ → カードCSV → ステップ1のサマリーページを先に読み取ってください。
+                取込ページ → カード明細 → ステップ1のサマリーページを先に読み取ってください。
               </div>
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -454,7 +452,6 @@ export default function CardSummaryPage() {
                       {(summary.etc_total || 0) > 0 && `　ETC ¥${summary.etc_total.toLocaleString()}`}
                     </div>
                   </div>
-                  {/* ⬇️ v2.2.11: 印刷ボタン */}
                   <button className="no-print" onClick={() => window.print()}
                     style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', flexShrink: 0 }}>
                     🖨 印刷
@@ -462,7 +459,6 @@ export default function CardSummaryPage() {
                 </div>
 
                 <div style={{ padding: '16px' }}>
-
                   <div style={{ marginBottom: '16px', background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px' }}>
                     <div style={{ fontSize: '13px', fontWeight: 'bold', marginBottom: '8px' }}>照合結果</div>
                     <div style={{ fontSize: '13px', marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
@@ -497,7 +493,6 @@ export default function CardSummaryPage() {
 
                         return (
                           <div key={item.id} style={{ background: isConfirm ? '#fffbeb' : 'white', border: `1px solid ${isConfirm ? '#f59e0b' : '#fde68a'}`, borderRadius: '8px', padding: '10px 12px', marginBottom: '8px' }}>
-
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                               <div style={{ flex: 1 }}>
                                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '2px', flexWrap: 'wrap' }}>
@@ -530,13 +525,11 @@ export default function CardSummaryPage() {
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>科目</label>
                               <AccountSelect value={edit.account} onChange={v => updateEdit(item.id, { account: v })} />
                             </div>
-
                             <div style={{ marginBottom: '6px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>摘要（memo・印刷される）</label>
                               <input value={edit.memo} onChange={e => updateEdit(item.id, { memo: e.target.value })}
                                 style={{ width: '100%', padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box' }} />
                             </div>
-
                             <div style={{ marginBottom: '10px' }}>
                               <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '3px' }}>備考（note・印刷されない）</label>
                               <input value={edit.note} onChange={e => updateEdit(item.id, { note: e.target.value })}
@@ -572,7 +565,6 @@ export default function CardSummaryPage() {
                           </div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                             <span style={{ fontSize: '13px', color: '#6b7280' }}>¥{item.amount.toLocaleString()}</span>
-                            {/* ⬇️ v2.2.11: 削除→戻す */}
                             <button onClick={() => restoreFromKataji(item, summary)}
                               style={{ padding: '3px 10px', background: '#dbeafe', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', color: '#1d4ed8' }}>
                               戻す
@@ -596,7 +588,7 @@ export default function CardSummaryPage() {
                               {tx.person === 'wife' ? '妻' : '廣！'}
                             </span>
                             <span style={{ color: '#16a34a', fontWeight: 'bold', marginRight: '6px' }}>{tx.account}</span>
-                            <span style={{ color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.memo}</span>
+                            <span style={{ color: '#374151' }}>{tx.memo}</span>
                           </div>
                           <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, marginLeft: '8px' }}>
                             {tx.voucher_no && <span style={{ fontSize: '10px', color: '#6b7280' }}>{tx.voucher_no}</span>}
@@ -609,7 +601,7 @@ export default function CardSummaryPage() {
 
                   {allStaging.length === 0 && approved.length === 0 && (
                     <div style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', fontSize: '13px' }}>
-                      明細データがありません。取込ページのステップ2から明細を読み取ってください。
+                      明細データがありません。取込ページのカード明細タブから明細を読み取ってください。
                     </div>
                   )}
                 </div>
