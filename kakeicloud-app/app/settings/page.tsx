@@ -1,6 +1,6 @@
-// v2.0.1 app/settings/page.tsx 科目を全カテゴリに拡張
+// v2.2.21 app/settings/page.tsx ルール編集・口座編集・削除を編集内に移動・下部パディング追加
 /**
- * kakeicloud v2.0.1 | 2026/05/24
+ * kakeicloud v2.2.21 | 2026/05/24
  * kakeicloud-app/app/settings/page.tsx
  */
 
@@ -87,6 +87,8 @@ export default function Settings() {
   const [bulkPerson, setBulkPerson] = useState<"hiroshi" | "wife">("hiroshi")
   const [bulkLoading, setBulkLoading] = useState(false)
   const [editingPerson, setEditingPerson] = useState<Person | null>(null)
+  const [editingRule, setEditingRule] = useState<ClassificationRule | null>(null)  // ⬅️ v2.2.21
+  const [editingAccount, setEditingAccount] = useState<PaymentAccount | null>(null)  // ⬅️ v2.2.21
   const [ruleKeyword, setRuleKeyword] = useState("")
   const [ruleAction, setRuleAction] = useState("keiji")
   const [ruleAccount, setRuleAccount] = useState("消耗品費")
@@ -144,15 +146,24 @@ export default function Settings() {
   async function addAccount() {
     if (!newName.trim()) { alert("名前を入力してください"); return }
     await supabase.from("payment_accounts").insert({
-      kind: newKind,
-      name: newName,
+      kind: newKind, name: newName,
       account_number: newAccountNumber || null,
-      person: newPerson,
-      is_active: true,
+      person: newPerson, is_active: true,
     })
-    setNewName("")
-    setNewAccountNumber("")
-    setShowAdd(false)
+    setNewName(""); setNewAccountNumber("")
+    setShowAdd(false); fetchAll()
+  }
+
+  // ⬇️ v2.2.21: 口座編集
+  async function updateAccount() {
+    if (!editingAccount) return
+    await supabase.from("payment_accounts").update({
+      name: editingAccount.name,
+      kind: editingAccount.kind,
+      account_number: editingAccount.account_number || null,
+      person: editingAccount.person,
+    }).eq("id", editingAccount.id)
+    setEditingAccount(null)
     fetchAll()
   }
 
@@ -161,28 +172,43 @@ export default function Settings() {
     fetchAll()
   }
 
+  // ⬇️ v2.2.21: 削除は編集画面内から呼ぶ
   async function deleteAccount(id: string) {
-    if (!confirm("削除しますか？")) return
+    if (!confirm("削除しますか？この操作は元に戻せません。")) return
     await supabase.from("payment_accounts").delete().eq("id", id)
+    setEditingAccount(null)
     fetchAll()
   }
 
   async function addRule() {
     if (!ruleKeyword.trim()) { alert("キーワードを入力してください"); return }
     await supabase.from("classification_rules").insert({
-      keyword: ruleKeyword,
-      action: ruleAction,
+      keyword: ruleKeyword, action: ruleAction,
       account: ruleAction === "keiji" ? ruleAccount : null,
-      person: rulePerson,
-      priority: 5,
+      person: rulePerson, priority: 5,
     })
     setRuleKeyword(""); setRuleAction("keiji"); setRuleAccount("消耗品費")
     setShowAddRule(false); fetchAll()
   }
 
+  // ⬇️ v2.2.21: ルール編集（keywordは変更不可）
+  async function updateRule() {
+    if (!editingRule) return
+    await supabase.from("classification_rules").update({
+      action: editingRule.action,
+      account: editingRule.action === "keiji" ? editingRule.account : null,
+      person: editingRule.person,
+      priority: editingRule.priority,
+    }).eq("id", editingRule.id)
+    setEditingRule(null)
+    fetchAll()
+  }
+
+  // ⬇️ v2.2.21: 削除は編集画面内から
   async function deleteRule(id: string) {
-    if (!confirm("削除しますか？")) return
+    if (!confirm("削除しますか？この操作は元に戻せません。")) return
     await supabase.from("classification_rules").delete().eq("id", id)
+    setEditingRule(null)
     fetchAll()
   }
 
@@ -201,8 +227,7 @@ export default function Settings() {
         .from("transactions").select("voucher_no")
         .eq("person", bulkPerson).eq("year", year)
         .not("voucher_no", "is", null)
-        .order("voucher_no", { ascending: false })
-        .limit(1)
+        .order("voucher_no", { ascending: false }).limit(1)
       let counter = 1
       if (existing && existing.length > 0 && existing[0].voucher_no) {
         counter = parseInt(existing[0].voucher_no.split("-")[1]) + 1
@@ -226,7 +251,8 @@ export default function Settings() {
   }
 
   return (
-    <div style={{ padding: "16px", fontFamily: "sans-serif", maxWidth: "600px", margin: "0 auto" }}>
+    // ⬇️ v2.2.21: paddingBottom追加（フローティングボタン対策）
+    <div style={{ padding: "16px", fontFamily: "sans-serif", maxWidth: "600px", margin: "0 auto", paddingBottom: "120px" }}>
 
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "20px" }}>
         <a href="/" style={{ padding: "8px 16px", background: "#e5e7eb", borderRadius: "6px", textDecoration: "none", color: "black", fontSize: "14px" }}>← 戻る</a>
@@ -393,6 +419,7 @@ export default function Settings() {
             </div>
           </div>
         )}
+
         {loading ? <div>読み込み中...</div> : (
           <>
             {["keiji", "kataji", "confirm"].map(action => {
@@ -405,14 +432,60 @@ export default function Settings() {
                     {al.label}
                   </div>
                   {filtered.map(r => (
-                    <div key={r.id} style={{ display: "flex", alignItems: "center", padding: "8px 10px", background: al.bg, border: `1px solid ${al.color}30`, borderRadius: "8px", marginBottom: "4px" }}>
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: "13px", fontWeight: "bold" }}>{r.keyword}</span>
-                        {r.account && <span style={{ fontSize: "12px", color: "#6b7280", marginLeft: "8px" }}>→ {r.account}</span>}
-                        <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "8px" }}>（{personLabel(r.person)}）</span>
-                      </div>
-                      <button onClick={() => deleteRule(r.id)}
-                        style={{ padding: "3px 10px", background: "#fef2f2", border: "1px solid #dc2626", borderRadius: "6px", cursor: "pointer", fontSize: "11px", color: "#dc2626" }}>削除</button>
+                    <div key={r.id}>
+                      {/* ⬇️ v2.2.21: ルール編集モード */}
+                      {editingRule?.id === r.id ? (
+                        <div style={{ border: "2px solid #7c3aed", borderRadius: "8px", padding: "12px", marginBottom: "6px", background: "white" }}>
+                          <div style={{ marginBottom: "8px", padding: "6px 10px", background: "#f3f4f6", borderRadius: "6px", fontSize: "13px" }}>
+                            <span style={{ color: "#6b7280", fontSize: "11px" }}>キーワード（変更不可）</span><br />
+                            <strong>{r.keyword}</strong>
+                          </div>
+                          <div style={{ marginBottom: "8px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>アクション</label>
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              {[
+                                { value: "keiji", label: "経費", color: "#16a34a" },
+                                { value: "kataji", label: "家事", color: "#6b7280" },
+                                { value: "confirm", label: "要確認", color: "#d97706" },
+                              ].map(a => (
+                                <button key={a.value} onClick={() => setEditingRule({ ...editingRule, action: a.value })}
+                                  style={{ flex: 1, padding: "6px", background: editingRule.action === a.value ? a.color : "#e5e7eb", color: editingRule.action === a.value ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>{a.label}</button>
+                              ))}
+                            </div>
+                          </div>
+                          {editingRule.action === "keiji" && (
+                            <div style={{ marginBottom: "8px" }}>
+                              <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>勘定科目</label>
+                              <AccountSelect value={editingRule.account || "消耗品費"} onChange={v => setEditingRule({ ...editingRule, account: v })} />
+                            </div>
+                          )}
+                          <div style={{ marginBottom: "10px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>適用者</label>
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              {PERSONS.map(p => (
+                                <button key={p.value} onClick={() => setEditingRule({ ...editingRule, person: p.value })}
+                                  style={{ flex: 1, padding: "6px", background: editingRule.person === p.value ? "#2563eb" : "#e5e7eb", color: editingRule.person === p.value ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>{p.label}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={updateRule} style={{ flex: 2, padding: "8px", background: "#7c3aed", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>保存</button>
+                            <button onClick={() => setEditingRule(null)} style={{ flex: 1, padding: "8px", background: "#e5e7eb", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}>キャンセル</button>
+                            <button onClick={() => deleteRule(r.id)} style={{ flex: 1, padding: "8px", background: "#fef2f2", border: "1px solid #dc2626", borderRadius: "6px", cursor: "pointer", fontSize: "13px", color: "#dc2626" }}>削除</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", padding: "8px 10px", background: al.bg, border: `1px solid ${al.color}30`, borderRadius: "8px", marginBottom: "4px" }}>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: "13px", fontWeight: "bold" }}>{r.keyword}</span>
+                            {r.account && <span style={{ fontSize: "12px", color: "#6b7280", marginLeft: "8px" }}>→ {r.account}</span>}
+                            <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "8px" }}>（{personLabel(r.person)}）</span>
+                          </div>
+                          {/* ⬇️ v2.2.21: 削除→編集ボタンに変更 */}
+                          <button onClick={() => setEditingRule(r)}
+                            style={{ padding: "3px 12px", background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "6px", cursor: "pointer", fontSize: "11px", color: "#374151" }}>編集</button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -453,7 +526,7 @@ export default function Settings() {
             </div>
             <div style={{ marginBottom: "12px" }}>
               <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>カード番号下4桁（任意）</label>
-              <input value={newAccountNumber} onChange={e => setNewAccountNumber(e.target.value)} placeholder="例：****-1234"
+              <input value={newAccountNumber} onChange={e => setNewAccountNumber(e.target.value)} placeholder="例：1234"
                 style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
             </div>
             <div style={{ marginBottom: "16px" }}>
@@ -471,6 +544,7 @@ export default function Settings() {
             </div>
           </div>
         )}
+
         {loading ? <div>読み込み中...</div> : (
           <>
             {KINDS.map(kind => {
@@ -480,22 +554,63 @@ export default function Settings() {
                 <div key={kind} style={{ marginBottom: "20px" }}>
                   <h3 style={{ fontSize: "13px", color: "#6b7280", borderBottom: "1px solid #e5e7eb", paddingBottom: "6px", marginBottom: "8px" }}>{kind}</h3>
                   {filtered.map(a => (
-                    <div key={a.id} style={{ display: "flex", alignItems: "center", padding: "10px 12px", border: "1px solid #e5e7eb", borderRadius: "8px", marginBottom: "6px", background: a.is_active ? "white" : "#f9fafb", opacity: a.is_active ? 1 : 0.6 }}>
-                      <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: "14px", fontWeight: "bold" }}>{a.name}</span>
-                        {a.account_number && (
-                          <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "6px" }}>{a.account_number}</span>
-                        )}
-                        <span style={{ fontSize: "12px", color: a.person === "hiroshi" ? "#2563eb" : a.person === "wife" ? "#dc2626" : "#6b7280", marginLeft: "6px" }}>
-                          （{personLabel(a.person)}）
-                        </span>
-                      </div>
-                      <button onClick={() => toggleActive(a.id, a.is_active)}
-                        style={{ marginRight: "8px", padding: "4px 10px", background: a.is_active ? "#f0fdf4" : "#f3f4f6", border: `1px solid ${a.is_active ? "#16a34a" : "#9ca3af"}`, borderRadius: "6px", cursor: "pointer", fontSize: "12px", color: a.is_active ? "#16a34a" : "#9ca3af" }}>
-                        {a.is_active ? "有効" : "無効"}
-                      </button>
-                      <button onClick={() => deleteAccount(a.id)}
-                        style={{ padding: "4px 10px", background: "#fef2f2", border: "1px solid #dc2626", borderRadius: "6px", cursor: "pointer", fontSize: "12px", color: "#dc2626" }}>削除</button>
+                    <div key={a.id}>
+                      {/* ⬇️ v2.2.21: 口座編集モード */}
+                      {editingAccount?.id === a.id ? (
+                        <div style={{ border: "2px solid #2563eb", borderRadius: "10px", padding: "14px", marginBottom: "8px", background: "white" }}>
+                          <div style={{ marginBottom: "10px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>種別</label>
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              {KINDS.map(k => (
+                                <button key={k} onClick={() => setEditingAccount({ ...editingAccount, kind: k })}
+                                  style={{ flex: 1, padding: "6px", background: editingAccount.kind === k ? "#0891b2" : "#e5e7eb", color: editingAccount.kind === k ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>{k}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ marginBottom: "10px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>名前</label>
+                            <input value={editingAccount.name} onChange={e => setEditingAccount({ ...editingAccount, name: e.target.value })}
+                              style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box", fontSize: "14px" }} />
+                          </div>
+                          <div style={{ marginBottom: "10px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>番号下4桁（任意）</label>
+                            <input value={editingAccount.account_number || ""} onChange={e => setEditingAccount({ ...editingAccount, account_number: e.target.value })}
+                              placeholder="例：1234"
+                              style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box", fontSize: "14px" }} />
+                          </div>
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>名義</label>
+                            <div style={{ display: "flex", gap: "6px" }}>
+                              {PERSONS.map(p => (
+                                <button key={p.value} onClick={() => setEditingAccount({ ...editingAccount, person: p.value })}
+                                  style={{ flex: 1, padding: "6px", background: editingAccount.person === p.value ? "#2563eb" : "#e5e7eb", color: editingAccount.person === p.value ? "white" : "black", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}>{p.label}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button onClick={updateAccount} style={{ flex: 2, padding: "10px", background: "#2563eb", color: "white", border: "none", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", fontSize: "14px" }}>保存</button>
+                            <button onClick={() => setEditingAccount(null)} style={{ flex: 1, padding: "10px", background: "#e5e7eb", border: "none", borderRadius: "8px", cursor: "pointer", fontSize: "13px" }}>キャンセル</button>
+                            <button onClick={() => deleteAccount(a.id)} style={{ flex: 1, padding: "10px", background: "#fef2f2", border: "1px solid #dc2626", borderRadius: "8px", cursor: "pointer", fontSize: "13px", color: "#dc2626" }}>削除</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", padding: "10px 12px", border: "1px solid #e5e7eb", borderRadius: "8px", marginBottom: "6px", background: a.is_active ? "white" : "#f9fafb", opacity: a.is_active ? 1 : 0.6 }}>
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: "14px", fontWeight: "bold" }}>{a.name}</span>
+                            {a.account_number && <span style={{ fontSize: "11px", color: "#9ca3af", marginLeft: "6px" }}>{a.account_number}</span>}
+                            <span style={{ fontSize: "12px", color: a.person === "hiroshi" ? "#2563eb" : a.person === "wife" ? "#dc2626" : "#6b7280", marginLeft: "6px" }}>
+                              （{personLabel(a.person)}）
+                            </span>
+                          </div>
+                          {/* ⬇️ v2.2.21: 有効・編集ボタン（削除は編集画面内） */}
+                          <button onClick={() => toggleActive(a.id, a.is_active)}
+                            style={{ marginRight: "8px", padding: "4px 10px", background: a.is_active ? "#f0fdf4" : "#f3f4f6", border: `1px solid ${a.is_active ? "#16a34a" : "#9ca3af"}`, borderRadius: "6px", cursor: "pointer", fontSize: "12px", color: a.is_active ? "#16a34a" : "#9ca3af" }}>
+                            {a.is_active ? "有効" : "無効"}
+                          </button>
+                          <button onClick={() => setEditingAccount(a)}
+                            style={{ padding: "4px 12px", background: "#eff6ff", border: "1px solid #2563eb", borderRadius: "6px", cursor: "pointer", fontSize: "12px", color: "#2563eb" }}>編集</button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
