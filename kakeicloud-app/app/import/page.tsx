@@ -1,6 +1,6 @@
-// v2.2.18 app/import/page.tsx レシート・EC注文書確認画面：日付・金額・摘要編集可能・重複チェック追加
+// v2.2.20 app/import/page.tsx card_detailsへのinvoice_no保存追加
 /**
- * kakeicloud v2.2.18 | 2026/05/24
+ * kakeicloud v2.2.20 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -19,6 +19,7 @@ type ImportRow = {
   person?: string
   memo?: string
   note?: string
+  invoice_no?: string  // ⬅️ v2.2.20追加
 }
 
 type ClassificationRule = {
@@ -146,7 +147,6 @@ export default function ImportPage() {
   const [swipeOffset, setSwipeOffset] = useState<{ [id: string]: number }>({})
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null)
 
-  // ⬇️ v2.2.18: 編集用ref（INPUT RULE準拠）
   const receiptDateRef = useRef<HTMLInputElement>(null)
   const receiptAmountRef = useRef<HTMLInputElement>(null)
   const receiptMemoRef = useRef<HTMLInputElement>(null)
@@ -240,7 +240,6 @@ export default function ImportPage() {
     })
   }
 
-  // ⬇️ v2.2.18: 重複チェック共通関数
   async function checkDuplicate(date: string, amount: number): Promise<boolean> {
     const d = new Date(date)
     const min = new Date(d); min.setDate(min.getDate() - 10)
@@ -261,8 +260,7 @@ export default function ImportPage() {
   async function handleSummaryImport() {
     if (!summarySlot) return
     if (!selectedAccountId) { alert('口座を選択してください'); return }
-    setProcessingSummary(true)
-    setErrorMsg(null)
+    setProcessingSummary(true); setErrorMsg(null)
     try {
       const base64 = await fileToBase64(summarySlot)
       const json = await callApi({ type: 'card_summary', imageBase64: base64, mediaType: summarySlot.type || 'image/jpeg' })
@@ -278,9 +276,8 @@ export default function ImportPage() {
       }).select('id').single()
       if (error) throw new Error(error.message)
       setSummaryImportId(ci.id)
-    } catch (error: any) {
-      setErrorMsg(error.message); alert(error.message)
-    } finally { setProcessingSummary(false) }
+    } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
+    finally { setProcessingSummary(false) }
   }
 
   async function handleYayoiFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -327,6 +324,7 @@ export default function ImportPage() {
     finally { setLoading(false) }
   }
 
+  // ⬇️ v2.2.20: invoice_no取得追加
   async function handlePDFFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -340,6 +338,7 @@ export default function ImportPage() {
         id: `pdf-${i}`, date: d.date || '', description: d.description || '',
         amount: Math.abs(d.amount || 0), status: 'pending' as const,
         note: d.note || undefined,
+        invoice_no: d.invoice_no || undefined,  // ⬅️ v2.2.20
       })))
       setRows(parsed)
       if (parsed.length === 0) alert('data not found')
@@ -347,6 +346,7 @@ export default function ImportPage() {
     finally { setLoading(false) }
   }
 
+  // ⬇️ v2.2.20: invoice_no取得追加
   async function handleCardImages() {
     const filledSlots = cardImageSlots.filter(s => s !== null) as File[]
     if (filledSlots.length === 0) { alert('画像を追加してください'); return }
@@ -364,6 +364,7 @@ export default function ImportPage() {
           person: d.person || 'hiroshi',
           memo: `カード：${d.description || ''}`,
           note: d.note || undefined,
+          invoice_no: d.invoice_no || undefined,  // ⬅️ v2.2.20
         }))
         allRows = [...allRows, ...applyRules(parsed)]
       }
@@ -407,7 +408,6 @@ export default function ImportPage() {
     finally { setLoadingText(false) }
   }
 
-  // ⬇️ v2.2.18: refから値を読んで保存・重複チェック追加
   async function saveReceipt() {
     if (!receiptData) return
     setSavingReceipt(true)
@@ -418,10 +418,8 @@ export default function ImportPage() {
       const memo = receiptMemoRef.current?.value || receiptData.memo || receiptData.store_name
       const account = receiptKind === 'keiji' ? receiptAccount : KIND_TO_ACCOUNT[receiptKind]
       const year = parseInt(date.split('-')[0])
-
       const ok = await checkDuplicate(date, amount)
       if (!ok) return
-
       const { error } = await supabase.from('transactions').insert({
         person, date, account, amount,
         tax_type: KIND_TO_TAX_TYPE[receiptKind],
@@ -434,14 +432,12 @@ export default function ImportPage() {
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: true,
       })
       if (error) throw new Error(error.message)
-      setReceiptData(null)
-      setTextInput('')
+      setReceiptData(null); setTextInput('')
       alert('登録しました')
     } catch (e: any) { alert(`save error: ${e.message}`) }
     finally { setSavingReceipt(false) }
   }
 
-  // ⬇️ v2.2.18: refから値を読んで保存・重複チェック追加
   async function saveEcOrder() {
     if (!ecOrderData) return
     setSavingEcOrder(true)
@@ -451,7 +447,6 @@ export default function ImportPage() {
       const amount = parseInt(ecAmountRef.current?.value || String(ecOrderData.amount)) || ecOrderData.amount
       const memo = ecMemoRef.current?.value || ecOrderData.memo
       const year = parseInt(date.split('-')[0])
-
       if (ecOrderData.order_no) {
         const { data: existing } = await supabase
           .from('transactions').select('id, date, memo').eq('order_no', ecOrderData.order_no).limit(1)
@@ -464,28 +459,24 @@ export default function ImportPage() {
         const ok = await checkDuplicate(date, amount)
         if (!ok) return
       }
-
       const { error } = await supabase.from('transactions').insert({
         person, date, account: ecOrderAccount, amount,
-        tax_type: '課税仕入',
-        tax_rate: ecOrderData.tax_rate || 10,
+        tax_type: '課税仕入', tax_rate: ecOrderData.tax_rate || 10,
         tax_amount: ecOrderData.tax_amount || 0,
         invoice_no: ecOrderData.invoice_no || null,
-        method: '未払金',
-        payment_account: paymentName,
-        memo: `${paymentName}証憑より`,
-        note: memo || null,
+        method: '未払金', payment_account: paymentName,
+        memo: `${paymentName}証憑より`, note: memo || null,
         order_no: ecOrderData.order_no || null,
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
       })
       if (error) throw new Error(error.message)
-      setEcOrderData(null)
-      setTextInput('')
+      setEcOrderData(null); setTextInput('')
       alert('登録しました')
     } catch (e: any) { alert(`save error: ${e.message}`) }
     finally { setSavingEcOrder(false) }
   }
 
+  // ⬇️ v2.2.20: card_details保存にinvoice_no追加
   async function saveRows() {
     if (rows.length === 0) { alert('データがありません'); return }
     const isYayoi = tab === '弥生'
@@ -520,12 +511,12 @@ export default function ImportPage() {
             memo: r.memo || null, note: r.note || null,
             source_name: sourceName, source_type: sourceType,
             matched_transaction_id: null,
+            invoice_no: r.invoice_no || null,  // ⬅️ v2.2.20
           })
         }
       }
       alert(`${rows.length}件を保存しました`)
-      setRows([])
-      setExpandedRowId(null)
+      setRows([]); setExpandedRowId(null)
     } catch (error: any) { alert(`save error: ${error.message}`) }
     finally { setSaving(false) }
   }
@@ -630,7 +621,6 @@ export default function ImportPage() {
             ))}
           </div>
 
-          {/* レシート撮影 */}
           {shokyoSub === 'receipt' && !receiptData && (
             <>
               <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
@@ -673,36 +663,25 @@ export default function ImportPage() {
             </>
           )}
 
-          {/* ⬇️ v2.2.18: レシート確認（編集可能フィールド追加） */}
           {shokyoSub === 'receipt' && receiptData && (
             <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
-              <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>
-                🧾 この内容で正しいですか？
-              </div>
+              <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>🧾 この内容で正しいですか？</div>
               <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-
-                {/* 日付：編集可 */}
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                   <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
                   <input ref={receiptDateRef} type="date" defaultValue={receiptData.date}
                     style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
                 </div>
-
-                {/* 金額：編集可 */}
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                   <span style={{ color: '#6b7280', minWidth: '60px' }}>金額</span>
                   <input ref={receiptAmountRef} type="number" defaultValue={receiptData.amount}
                     style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold' }} />
                 </div>
-
-                {/* 摘要：編集可 */}
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                   <span style={{ color: '#6b7280', minWidth: '60px' }}>摘要</span>
                   <input ref={receiptMemoRef} type="text" defaultValue={receiptData.memo || receiptData.store_name}
                     style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
                 </div>
-
-                {/* 表示のみ */}
                 {receiptData.tax_amount > 0 && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span style={{ color: '#6b7280' }}>消費税</span>
@@ -722,7 +701,6 @@ export default function ImportPage() {
                   </div>
                 )}
               </div>
-
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>種別</label>
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -754,7 +732,6 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* EC注文書 */}
           {shokyoSub === 'ec' && (
             <>
               <div style={{ marginBottom: '16px' }}>
@@ -816,36 +793,27 @@ export default function ImportPage() {
                 </>
               )}
 
-              {/* ⬇️ v2.2.18: EC注文確認（編集可能フィールド追加） */}
               {ecOrderData && (
                 <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>
                     🛒 この内容で正しいですか？（{ecCompany === 'その他' ? (ecCompanyOther || 'EC') : ecCompany}）
                   </div>
                   <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
-
-                    {/* 日付：編集可 */}
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                       <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
                       <input ref={ecDateRef} type="date" defaultValue={ecOrderData.date}
                         style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
                     </div>
-
-                    {/* 金額：編集可 */}
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                       <span style={{ color: '#6b7280', minWidth: '60px' }}>金額</span>
                       <input ref={ecAmountRef} type="number" defaultValue={ecOrderData.amount}
                         style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '15px', fontWeight: 'bold' }} />
                     </div>
-
-                    {/* 商品概要：編集可（memoとして保存） */}
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                       <span style={{ color: '#6b7280', minWidth: '60px' }}>商品概要</span>
                       <input ref={ecMemoRef} type="text" defaultValue={ecOrderData.memo}
                         style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px' }} />
                     </div>
-
-                    {/* 表示のみ */}
                     {ecOrderData.order_no && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                         <span style={{ color: '#6b7280' }}>注文番号</span>
@@ -859,7 +827,6 @@ export default function ImportPage() {
                       </div>
                     )}
                   </div>
-
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
                     <select value={ecOrderAccount} onChange={e => setEcOrderAccount(e.target.value)}
@@ -899,7 +866,7 @@ export default function ImportPage() {
                     fontSize: '14px', fontWeight: selectedAccountId === a.id ? 'bold' : 'normal',
                     minWidth: '140px',
                   }}>
-                  {a.kind === 'カード' ? '💳' : '🏦'} {a.name}
+                  {selectedAccount?.kind === 'カード' ? '💳' : '🏦'} {a.name}
                 </button>
               ))}
             </div>
@@ -907,7 +874,6 @@ export default function ImportPage() {
 
           {selectedAccountId && isCardAccount && (
             <>
-              {/* Step1: サマリー */}
               <div style={{ marginBottom: '12px', background: '#fffbeb', border: `2px solid ${summaryData ? '#16a34a' : '#f59e0b'}`, borderRadius: '10px', padding: '12px' }}>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#92400e', marginBottom: '8px' }}>
                   ステップ1　サマリーページ（請求合計）
@@ -928,8 +894,7 @@ export default function ImportPage() {
                 ) : (
                   <div style={{ position: 'relative' }}>
                     <div style={{
-                      padding: '12px 16px',
-                      background: summarySlot ? '#f0fdf4' : 'white',
+                      padding: '12px 16px', background: summarySlot ? '#f0fdf4' : 'white',
                       border: `1px solid ${summarySlot ? '#16a34a' : '#d1d5db'}`,
                       borderRadius: '8px', fontSize: '13px',
                       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
@@ -956,7 +921,6 @@ export default function ImportPage() {
                 )}
               </div>
 
-              {/* Step2: 明細（image） */}
               <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '12px', marginBottom: '12px' }}>
                 <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#374151', marginBottom: '10px' }}>
                   ステップ2　明細ページ（画像・ページごとに追加）
@@ -964,8 +928,7 @@ export default function ImportPage() {
                 {Array.from({ length: 10 }, (_, i) => (
                   <div key={i} style={{ position: 'relative', marginBottom: '6px' }}>
                     <div style={{
-                      display: 'flex', alignItems: 'center', gap: '10px',
-                      padding: '10px 14px',
+                      display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px',
                       background: cardImageSlots[i] ? '#f0fdf4' : 'white',
                       border: `1px solid ${cardImageSlots[i] ? '#16a34a' : '#d1d5db'}`,
                       borderRadius: '8px', fontSize: '13px',
@@ -1006,7 +969,6 @@ export default function ImportPage() {
                 )}
               </div>
 
-              {/* PDF代替 */}
               <div style={{ position: 'relative', marginBottom: '12px' }}>
                 <div style={{ width: '100%', padding: '12px', background: loading ? '#9ca3af' : '#475569', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '14px', boxSizing: 'border-box' }}>
                   {loading ? '解析中...' : '📄 PDFで取込む（代替）'}
@@ -1017,7 +979,6 @@ export default function ImportPage() {
                 )}
               </div>
 
-              {/* テキスト代替 */}
               <div style={{ marginBottom: '16px' }}>
                 <button onClick={() => setShowTextArea(!showTextArea)}
                   style={{ width: '100%', padding: '12px', background: showTextArea ? '#e5e7eb' : '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', color: '#374151', textAlign: 'left' }}>
