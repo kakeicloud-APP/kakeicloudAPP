@@ -1,4 +1,4 @@
-// v2.2.14 app/api/claude/route.ts card_image・pdfにinvoice_no取得追加
+// v2.2.15 app/api/claude/route.ts receiptにpayment_card追加
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
 
@@ -27,7 +27,8 @@ export async function POST(req: Request) {
   "tax_rate": 税率（8または10・数値）,
   "memo": "店名を簡潔に",
   "account": "消耗品費などの科目",
-  "invoice_no": "インボイス登録番号（T始まり・なければnull）"
+  "invoice_no": "インボイス登録番号（T始まり・なければnull）",
+  "payment_card": "支払いカード名（例：楽天カード・VISAなど・なければnull）"
 }
 JSONのみ返してください。` }
         ]
@@ -117,7 +118,8 @@ ${text}
   "tax_rate": 税率（8または10・数値）,
   "memo": "店名を簡潔に",
   "account": "消耗品費などの科目",
-  "invoice_no": "インボイス登録番号（T始まり・なければnull）"
+  "invoice_no": "インボイス登録番号（T始まり・なければnull）",
+  "payment_card": "支払いカード名（例：楽天カード・VISAなど・なければnull）"
 }
 JSONのみ返してください。`
       }]
