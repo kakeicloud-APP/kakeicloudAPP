@@ -1,6 +1,6 @@
-// v2.2.10 app/import/page.tsx 保存先分岐：弥生→staging、それ以外→card_details
+// v2.2.15 app/import/page.tsx receiptにpayment_card表示・保存追加
 /**
- * kakeicloud v2.2.10 | 2026/05/24
+ * kakeicloud v2.2.15 | 2026/05/24
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -46,6 +46,7 @@ type ReceiptData = {
   memo: string
   account: string
   invoice_no: string
+  payment_card?: string  // ⬅️ v2.2.15追加
 }
 
 type AmazonData = {
@@ -326,6 +327,7 @@ export default function ImportPage() {
           status: 'pending' as const,
           person: d.person || 'hiroshi',
           memo: `カード：${d.description || ''}`,
+          note: d.note || undefined,
         }))
         allRows = [...allRows, ...applyRules(parsed)]
       }
@@ -397,6 +399,7 @@ export default function ImportPage() {
     return json.data.map((d: any, i: number) => ({
       id: `pdf-${i}`, date: d.date || '', description: d.description || '',
       amount: Math.abs(d.amount || 0), status: 'pending' as const,
+      note: d.note || undefined,
     }))
   }
 
@@ -438,7 +441,9 @@ export default function ImportPage() {
         tax_type: KIND_TO_TAX_TYPE[receiptKind],
         tax_rate: receiptKind === 'keiji' ? receiptData.tax_rate : 0,
         tax_amount: receiptKind === 'keiji' ? receiptData.tax_amount : 0,
-        invoice_no: receiptData.invoice_no || null, method: '未払金',
+        invoice_no: receiptData.invoice_no || null,
+        method: receiptData.payment_card ? '未払金' : '現金',
+        payment_account: receiptData.payment_card || null,  // ⬅️ v2.2.15追加
         memo: receiptData.memo || receiptData.store_name,
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: true,
       })
@@ -488,7 +493,6 @@ export default function ImportPage() {
     }
   }
 
-  // ⬇️ v2.2.10 変更：弥生CSV→import_staging、それ以外→card_details
   async function saveRows() {
     if (rows.length === 0) { alert('データがありません'); return }
     if (!selectedAccountId) { alert('取込元口座を選択してください'); return }
@@ -841,8 +845,10 @@ export default function ImportPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{receiptData.date}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>店名</span><span>{receiptData.store_name}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{receiptData.amount.toLocaleString()}</span></div>
-            {receiptData.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>消費税</span><span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span></div>}
-            {receiptData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span></div>}
+            {receiptData.tax_amount > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>消費税</span><span>¥{receiptData.tax_amount.toLocaleString()}（{receiptData.tax_rate}%）</span></div>}
+            {/* ⬇️ v2.2.15: invoice_no・payment_card表示追加 */}
+            {receiptData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px' }}>{receiptData.invoice_no}</span></div>}
+            {receiptData.payment_card && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>支払カード</span><span style={{ color: '#2563eb', fontWeight: 'bold' }}>💳 {receiptData.payment_card}</span></div>}
           </div>
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>種別</label>
@@ -882,7 +888,9 @@ export default function ImportPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>日付</span><span>{amazonData.date}</span></div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>金額</span><span style={{ fontWeight: 'bold', fontSize: '16px' }}>¥{amazonData.amount.toLocaleString()}</span></div>
             <div style={{ marginBottom: '4px' }}><span style={{ color: '#6b7280', fontSize: '12px' }}>商品概要（note）：</span><span style={{ fontSize: '12px' }}>{amazonData.memo}</span></div>
-            {amazonData.order_no && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#6b7280' }}>注文番号</span><span style={{ fontSize: '11px' }}>{amazonData.order_no}</span></div>}
+            {amazonData.order_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>注文番号</span><span style={{ fontSize: '11px' }}>{amazonData.order_no}</span></div>}
+            {/* ⬇️ v2.2.15: invoice_no表示追加 */}
+            {amazonData.invoice_no && <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}><span style={{ color: '#6b7280' }}>登録番号</span><span style={{ fontSize: '11px', color: '#7c3aed' }}>{amazonData.invoice_no}</span></div>}
           </div>
           <div style={{ marginBottom: '12px' }}>
             <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
@@ -944,6 +952,9 @@ export default function ImportPage() {
                       <div style={{ fontSize: '13px' }}>{r.description}</div>
                       {r.memo && !isExpanded && (
                         <div style={{ fontSize: '11px', color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📝 {r.memo}</div>
+                      )}
+                      {r.note && !isExpanded && (
+                        <div style={{ fontSize: '11px', color: '#2563eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🛣 {r.note}</div>
                       )}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '8px', flexShrink: 0 }}>
