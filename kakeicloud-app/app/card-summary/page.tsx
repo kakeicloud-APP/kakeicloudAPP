@@ -1,6 +1,6 @@
-// v2.2.19 app/card-summary/page.tsx approveItemに重複チェック追加
+// v2.2.20 app/card-summary/page.tsx approveItemでinvoice_no引き継ぎ
 /**
- * kakeicloud v2.2.19 | 2026/05/24
+ * kakeicloud v2.2.20 | 2026/05/24
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -31,6 +31,7 @@ type StagingItem = {
   account?: string
   memo?: string
   note?: string
+  invoice_no?: string  // ⬅️ v2.2.20追加
 }
 
 type TxRow = {
@@ -115,7 +116,8 @@ export default function CardSummaryPage() {
     const ids = summaryList.map(s => s.id)
     const [{ data: detailData }, { data: txData }] = await Promise.all([
       supabase.from('card_details')
-        .select('id, person, date, description, amount, source_name, card_import_id, status, account, memo, note')
+        // ⬇️ v2.2.20: invoice_no追加
+        .select('id, person, date, description, amount, source_name, card_import_id, status, account, memo, note, invoice_no')
         .in('card_import_id', ids).order('date'),
       supabase.from('transactions')
         .select('id, person, date, account, amount, memo, voucher_no, card_import_id')
@@ -209,7 +211,6 @@ export default function CardSummaryPage() {
     return `${prefix}${year}-${String(nextNum).padStart(4, '0')}`
   }
 
-  // ⬇️ v2.2.19: 重複チェック共通関数
   async function checkDuplicate(date: string, amount: number): Promise<boolean> {
     const d = new Date(date)
     const min = new Date(d); min.setDate(min.getDate() - 10)
@@ -247,30 +248,22 @@ export default function CardSummaryPage() {
       setApprovedMap(prev => ({
         ...prev,
         [summary.id]: [...(prev[summary.id] || []), {
-          id: candidate.id,
-          person: candidate.person,
-          date: candidate.date,
-          account: candidate.account,
-          amount: candidate.amount,
+          id: candidate.id, person: candidate.person, date: candidate.date,
+          account: candidate.account, amount: candidate.amount,
           memo: candidate.memo || `カード：${item.description}`,
-          voucher_no: candidate.voucher_no,
-          card_import_id: summary.id,
+          voucher_no: candidate.voucher_no, card_import_id: summary.id,
         }]
       }))
       setShowMatchModal(null)
-    } catch (e: any) {
-      alert(`エラー: ${e.message}`)
-    } finally {
-      setMatchingId(null)
-    }
+    } catch (e: any) { alert(`エラー: ${e.message}`) }
+    finally { setMatchingId(null) }
   }
 
-  // ⬇️ v2.2.19: approveItemに重複チェック追加
+  // ⬇️ v2.2.20: invoice_no引き継ぎ追加
   async function approveItem(item: StagingItem, summary: CardImport) {
     const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
     setApprovingId(item.id)
     try {
-      // 重複チェック
       const ok = await checkDuplicate(item.date, item.amount)
       if (!ok) { setApprovingId(null); return }
 
@@ -290,12 +283,9 @@ export default function CardSummaryPage() {
         payment_account: item.source_name,
         memo: edit.memo,
         note: edit.note || null,
+        invoice_no: item.invoice_no || null,  // ⬅️ v2.2.20
         year,
-        is_closing: false,
-        is_confirmed: false,
-        is_void: false,
-        is_printed: false,
-        has_receipt: false,
+        is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
         voucher_no: voucherNo,
         card_import_id: summary.id,
       })
@@ -311,15 +301,11 @@ export default function CardSummaryPage() {
         [summary.id]: [...(prev[summary.id] || []), {
           id: voucherNo, person: item.person, date: item.date,
           account: edit.account, amount: item.amount,
-          memo: edit.memo, voucher_no: voucherNo,
-          card_import_id: summary.id,
+          memo: edit.memo, voucher_no: voucherNo, card_import_id: summary.id,
         }]
       }))
-    } catch (e: any) {
-      alert(`エラー: ${e.message}`)
-    } finally {
-      setApprovingId(null)
-    }
+    } catch (e: any) { alert(`エラー: ${e.message}`) }
+    finally { setApprovingId(null) }
   }
 
   async function markAsKataji(item: StagingItem, summary: CardImport) {
@@ -370,8 +356,7 @@ export default function CardSummaryPage() {
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                 {cardTypes.map(ct => (
-                  <button key={ct}
-                    onClick={() => setSelectedCard(selectedCard === ct ? null : ct)}
+                  <button key={ct} onClick={() => setSelectedCard(selectedCard === ct ? null : ct)}
                     style={{
                       padding: '12px 20px',
                       background: selectedCard === ct ? '#1e293b' : '#f3f4f6',
@@ -397,8 +382,7 @@ export default function CardSummaryPage() {
                   const pendingCount = stagingItems.filter(i => i.status !== 'kataji' && i.status !== 'keiji').length
                   const approvedCount = (approvedMap[s.id] || []).length
                   return (
-                    <button key={m}
-                      onClick={() => setSelectedMonth(selectedMonth === m ? null : m)}
+                    <button key={m} onClick={() => setSelectedMonth(selectedMonth === m ? null : m)}
                       style={{
                         padding: '10px 18px',
                         background: selectedMonth === m ? '#2563eb' : '#f3f4f6',
@@ -504,6 +488,12 @@ export default function CardSummaryPage() {
                                   {candidates.length > 0 && (
                                     <span style={{ fontSize: '10px', background: '#ede9fe', color: '#7c3aed', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
                                       🔗 候補{candidates.length}件
+                                    </span>
+                                  )}
+                                  {/* ⬇️ v2.2.20: invoice_no表示 */}
+                                  {item.invoice_no && (
+                                    <span style={{ fontSize: '10px', background: '#f0fdf4', color: '#16a34a', padding: '1px 6px', borderRadius: '4px' }}>
+                                      📋 {item.invoice_no}
                                     </span>
                                   )}
                                 </div>
