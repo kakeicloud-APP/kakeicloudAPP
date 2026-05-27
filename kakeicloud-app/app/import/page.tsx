@@ -1,6 +1,6 @@
-// v2.2.24 app/import/page.tsx EC確認画面に人選択・EC会社変更を追加
+// v2.2.27 app/import/page.tsx saveReceipt・saveEcOrderにcard_verified追加
 /**
- * kakeicloud v2.2.24 | 2026/05/24
+ * kakeicloud v2.2.27 | 2026/05/27
  * kakeicloud-app/app/import/page.tsx
  */
 
@@ -118,7 +118,7 @@ export default function ImportPage() {
   const [shokyoSub, setShokyoSub] = useState<ShokyoSub>('receipt')
   const [ecCompany, setEcCompany] = useState<EcCompany>('Amazon')
   const [ecCompanyOther, setEcCompanyOther] = useState('')
-  const [ecPerson, setEcPerson] = useState<'hiroshi' | 'wife'>('hiroshi')  // ⬅️ v2.2.24
+  const [ecPerson, setEcPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [person, setPerson] = useState<'hiroshi' | 'wife'>('hiroshi')
   const [rows, setRows] = useState<ImportRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -173,7 +173,6 @@ export default function ImportPage() {
     setSelectedAccountId('')
   }, [tab])
 
-  // ⬇️ v2.2.24: person変更時にecPersonも同期
   useEffect(() => { setEcPerson(person) }, [person])
 
   async function fetchMasters() {
@@ -324,7 +323,7 @@ export default function ImportPage() {
       if (!json.data) throw new Error('no data')
       setEcOrderData(json.data)
       setEcOrderAccount(json.data.account || KEIJI_ACCOUNTS[0])
-      setEcPerson(person)  // ⬅️ v2.2.24: 読み取り時にpersonを引き継ぐ
+      setEcPerson(person)
     } catch (error: any) { setErrorMsg(error.message); alert(error.message) }
     finally { setLoading(false) }
   }
@@ -393,7 +392,7 @@ export default function ImportPage() {
         if (!json.data) throw new Error('no data')
         setEcOrderData(json.data)
         setEcOrderAccount(json.data.account || KEIJI_ACCOUNTS[0])
-        setEcPerson(person)  // ⬅️ v2.2.24
+        setEcPerson(person)
         setShowTextArea(false)
       } else if (tab === 'カード明細') {
         const json = await callApi({ type: 'text_card', text: textInput })
@@ -410,6 +409,7 @@ export default function ImportPage() {
     finally { setLoadingText(false) }
   }
 
+  // ⬇️ v2.2.27: payment_cardがある場合card_verified:true
   async function saveReceipt() {
     if (!receiptData) return
     setSavingReceipt(true)
@@ -431,6 +431,7 @@ export default function ImportPage() {
         method: receiptData.payment_card ? '未払金' : '現金',
         payment_account: receiptData.payment_card || null,
         memo,
+        card_verified: !!receiptData.payment_card,  // ⬅️ v2.2.27
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: true,
       })
       if (error) throw new Error(error.message)
@@ -440,7 +441,7 @@ export default function ImportPage() {
     finally { setSavingReceipt(false) }
   }
 
-  // ⬇️ v2.2.24: ecPersonを使用
+  // ⬇️ v2.2.27: EC注文書は常にcard_verified:true
   async function saveEcOrder() {
     if (!ecOrderData) return
     setSavingEcOrder(true)
@@ -463,7 +464,7 @@ export default function ImportPage() {
         if (!ok) return
       }
       const { error } = await supabase.from('transactions').insert({
-        person: ecPerson,  // ⬅️ v2.2.24: ecPersonを使用
+        person: ecPerson,
         date, account: ecOrderAccount, amount,
         tax_type: '課税仕入', tax_rate: ecOrderData.tax_rate || 10,
         tax_amount: ecOrderData.tax_amount || 0,
@@ -471,6 +472,7 @@ export default function ImportPage() {
         method: '未払金', payment_account: paymentName,
         memo: `${paymentName}証憑より`, note: memo || null,
         order_no: ecOrderData.order_no || null,
+        card_verified: true,  // ⬅️ v2.2.27
         year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
       })
       if (error) throw new Error(error.message)
@@ -596,7 +598,7 @@ export default function ImportPage() {
         ))}
       </div>
 
-      {/* ━━━━ 弥生タブ ━━━━ */}
+      {/* 弥生タブ */}
       {tab === '弥生' && (
         <div style={{ position: 'relative', marginBottom: '16px' }}>
           <div style={{ width: '100%', padding: '14px', background: loading ? '#9ca3af' : '#2563eb', color: 'white', borderRadius: '8px', textAlign: 'center', fontWeight: 'bold', fontSize: '15px', boxSizing: 'border-box' }}>
@@ -609,7 +611,7 @@ export default function ImportPage() {
         </div>
       )}
 
-      {/* ━━━━ 証憑タブ ━━━━ */}
+      {/* 証憑タブ */}
       {tab === '証憑' && (
         <>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
@@ -624,7 +626,6 @@ export default function ImportPage() {
             ))}
           </div>
 
-          {/* レシート撮影 */}
           {shokyoSub === 'receipt' && !receiptData && (
             <>
               <div style={{ marginBottom: '12px', display: 'flex', gap: '8px' }}>
@@ -667,7 +668,6 @@ export default function ImportPage() {
             </>
           )}
 
-          {/* レシート確認 */}
           {shokyoSub === 'receipt' && receiptData && (
             <div style={{ background: '#f0fdf4', border: '2px solid #16a34a', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
               <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#16a34a' }}>🧾 この内容で正しいですか？</div>
@@ -737,10 +737,8 @@ export default function ImportPage() {
             </div>
           )}
 
-          {/* EC注文書 */}
           {shokyoSub === 'ec' && (
             <>
-              {/* EC会社選択（確認前） */}
               {!ecOrderData && (
                 <>
                   <div style={{ marginBottom: '16px' }}>
@@ -799,14 +797,11 @@ export default function ImportPage() {
                 </>
               )}
 
-              {/* ⬇️ v2.2.24: EC注文確認（人選択・EC会社変更追加） */}
               {ecOrderData && (
                 <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '12px', color: '#f97316' }}>
                     🛒 この内容で正しいですか？
                   </div>
-
-                  {/* EC会社変更（確認画面内） */}
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>EC会社</label>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -823,8 +818,6 @@ export default function ImportPage() {
                         style={{ width: '100%', padding: '8px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px', boxSizing: 'border-box', marginTop: '6px' }} />
                     )}
                   </div>
-
-                  {/* 人選択（確認画面内） */}
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '11px', color: '#6b7280', marginBottom: '6px' }}>登録者</label>
                     <div style={{ display: 'flex', gap: '8px' }}>
@@ -838,7 +831,6 @@ export default function ImportPage() {
                       </button>
                     </div>
                   </div>
-
                   <div style={{ background: 'white', borderRadius: '8px', padding: '12px', marginBottom: '12px', fontSize: '13px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
                       <span style={{ color: '#6b7280', minWidth: '60px' }}>日付</span>
@@ -868,7 +860,6 @@ export default function ImportPage() {
                       </div>
                     )}
                   </div>
-
                   <div style={{ marginBottom: '12px' }}>
                     <label style={{ display: 'block', fontSize: '12px', marginBottom: '6px', color: '#374151' }}>科目</label>
                     <select value={ecOrderAccount} onChange={e => setEcOrderAccount(e.target.value)}
@@ -891,7 +882,7 @@ export default function ImportPage() {
         </>
       )}
 
-      {/* ━━━━ カード明細タブ ━━━━ */}
+      {/* カード明細タブ */}
       {tab === 'カード明細' && (
         <>
           <div style={{ marginBottom: '16px' }}>
@@ -1060,7 +1051,7 @@ export default function ImportPage() {
         </>
       )}
 
-      {/* ━━━━ 明細リスト（弥生・カード明細共通） ━━━━ */}
+      {/* 明細リスト */}
       {rows.length > 0 && (
         <>
           <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap', fontSize: '12px' }}>
@@ -1086,7 +1077,6 @@ export default function ImportPage() {
                   onTouchMove={e => onTouchMove(r.id, e.touches[0].clientX)}
                   onTouchEnd={() => onTouchEnd(r.id)}
                   style={{ transform: `translateX(${offset}px)`, transition: offset === 0 ? 'transform 0.2s' : 'none', background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${border}`, borderRadius: '8px', opacity: r.status === 'kataji' ? 0.5 : 1 }}>
-
                   <div onClick={() => setExpandedRowId(isExpanded ? null : r.id)}
                     style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ flex: 1 }}>
