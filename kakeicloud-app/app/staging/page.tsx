@@ -94,14 +94,13 @@ export default function StagingPage() {
     if (status === 'kataji') { await deleteRow(row.id); return }
     setApproving(prev => ({ ...prev, [row.id]: true }))
     try {
-      // ⬇️ v2.2.28: Amazonマッチあり → 既存transactionにcard_verified:true追加
       if (row.matched_transaction_id) {
         const { error } = await supabase
           .from('transactions')
           .update({
             payment_account: row.source_name || null,
             is_confirmed: true,
-            card_verified: true,  // ⬅️ v2.2.28
+            card_verified: true,
           })
           .eq('id', row.matched_transaction_id)
         if (error) throw new Error(error.message)
@@ -110,7 +109,6 @@ export default function StagingPage() {
         return
       }
 
-      // ⬇️ v2.2.28: 通常フロー → source_typeがカードならcard_verified:true
       const year = parseInt(row.date.split('-')[0])
       const account = accounts[row.id] || KEIJI_ACCOUNTS[0]
       const taxRate = taxRates[row.id] ?? 10
@@ -121,7 +119,7 @@ export default function StagingPage() {
         tax_type: '課税仕入', tax_rate: taxRate, tax_amount: taxAmount,
         method: '未払金', payment_account: row.source_name || null,
         memo: row.description, year,
-        card_verified: row.source_type === 'カード',  // ⬅️ v2.2.28
+        card_verified: row.source_type === 'カード',
         is_closing: false, is_confirmed: false, is_void: false,
         is_printed: false, has_receipt: false, voucher_no: voucherNo,
       })
@@ -183,4 +181,121 @@ export default function StagingPage() {
         <button onClick={() => setPerson('hiroshi')}
           style={{ padding: '8px 20px', background: person === 'hiroshi' ? '#2563eb' : '#e5e7eb', color: person === 'hiroshi' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>廣！</button>
         <button onClick={() => setPerson('wife')}
-          style={{ padding: '8px 20px', background: person === 'wife' ? '#2563eb​​​​​​​​​​​​​​​​
+          style={{ padding: '8px 20px', background: person === 'wife' ? '#2563eb' : '#e5e7eb', color: person === 'wife' ? 'white' : 'black', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>妻</button>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', fontSize: '13px' }}>
+        <span style={{ padding: '6px 12px', background: '#f0fdf4', border: '1px solid #16a34a', borderRadius: '6px', color: '#16a34a', fontWeight: 'bold' }}>経費 {counts.keiji}件</span>
+        <span style={{ padding: '6px 12px', background: '#f3f4f6', border: '1px solid #9ca3af', borderRadius: '6px', color: '#6b7280' }}>家事 {counts.kataji}件</span>
+        <span style={{ padding: '6px 12px', background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: '6px', color: '#d97706' }}>要確認 {counts.confirm}件</span>
+        <span style={{ padding: '6px 12px', background: 'white', border: '1px solid #e5e7eb', borderRadius: '6px', color: '#374151' }}>未分類 {counts.pending}件</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '12px', flexWrap: 'wrap' }}>
+        {[
+          { key: 'all', label: `全件 ${rows.length}` },
+          { key: 'keiji', label: `経費 ${counts.keiji}` },
+          { key: 'kataji', label: `家事 ${counts.kataji}` },
+          { key: 'confirm', label: `要確認 ${counts.confirm}` },
+          { key: 'pending', label: `未分類 ${counts.pending}` },
+        ].map(f => (
+          <button key={f.key} onClick={() => setFilterStatus(f.key as any)}
+            style={{ padding: '6px 12px', background: filterStatus === f.key ? '#7c3aed' : '#f3f4f6', color: filterStatus === f.key ? 'white' : '#374151', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {counts.keiji > 0 && (
+        <button onClick={bulkApproveKeiji} disabled={bulkApproving}
+          style={{ width: '100%', padding: '14px', background: bulkApproving ? '#9ca3af' : '#16a34a', color: 'white', border: 'none', borderRadius: '8px', cursor: bulkApproving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '15px', marginBottom: '16px' }}>
+          {bulkApproving ? '承認中...' : `✅ 経費 ${counts.keiji}件を一括承認`}
+        </button>
+      )}
+
+      {loading ? <div>読み込み中...</div> : rows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#9ca3af', fontSize: '14px' }}>
+          承認待ちのデータはありません
+        </div>
+      ) : (
+        displayRows.map(row => {
+          const s = statuses[row.id] || row.status
+          const { bg, border, label, labelColor } = statusColor(s)
+          const isApproving = approving[row.id]
+          const isMatched = !!row.matched_transaction_id
+          return (
+            <div key={row.id} style={{ background: bg, border: `1px solid ${border}`, borderLeft: `4px solid ${isMatched ? '#f97316' : border}`, borderRadius: '8px', padding: '12px', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>
+                    {row.date}　{row.source_name}
+                    {row.source_type === 'カード' && (
+                      <span style={{ marginLeft: '6px', fontSize: '10px', color: '#0891b2', fontWeight: 'bold' }}>💳</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '2px' }}>{row.description}</div>
+                  <div style={{ fontSize: '15px', color: '#1e293b' }}>¥{row.amount.toLocaleString()}</div>
+                </div>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: labelColor, background: 'white', border: `1px solid ${border}`, borderRadius: '4px', padding: '2px 8px', marginLeft: '8px' }}>{label}</span>
+              </div>
+
+              {isMatched && (
+                <div style={{ background: '#fff7ed', border: '1px solid #f97316', borderRadius: '6px', padding: '8px 10px', marginBottom: '8px', fontSize: '12px', color: '#c2410c' }}>
+                  🛒 Amazon照合候補あり<br />
+                  <span style={{ fontSize: '11px', color: '#6b7280' }}>{row.match_note}</span><br />
+                  <span style={{ fontSize: '11px', color: '#c2410c', fontWeight: 'bold' }}>承認すると既存データの口座情報を更新します（新規登録なし）</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { key: 'keiji', label: '経費' },
+                  { key: 'kataji', label: '家事' },
+                  { key: 'confirm', label: '要確認' },
+                ].map(opt => (
+                  <button key={opt.key}
+                    onClick={() => setStatuses(prev => ({ ...prev, [row.id]: opt.key }))}
+                    style={{ padding: '4px 10px', background: s === opt.key ? '#7c3aed' : '#f3f4f6', color: s === opt.key ? 'white' : '#374151', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {s === 'keiji' && !isMatched && (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                  <select value={accounts[row.id] || KEIJI_ACCOUNTS[0]}
+                    onChange={e => setAccounts(prev => ({ ...prev, [row.id]: e.target.value }))}
+                    style={{ flex: 1, padding: '6px', border: '1px solid #e5e7eb', borderRadius: '6px', fontSize: '13px' }}>
+                    {KEIJI_ACCOUNTS.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    {[0, 8, 10].map(r => (
+                      <button key={r}
+                        onClick={() => setTaxRates(prev => ({ ...prev, [row.id]: r }))}
+                        style={{ padding: '6px 10px', background: (taxRates[row.id] ?? 10) === r ? '#dc2626' : '#f3f4f6', color: (taxRates[row.id] ?? 10) === r ? 'white' : '#374151', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+                        {r}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {s !== 'kataji' && (
+                  <button onClick={() => approveRow(row)} disabled={isApproving}
+                    style={{ flex: 1, padding: '10px', background: isApproving ? '#9ca3af' : isMatched ? '#f97316' : '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: isApproving ? 'default' : 'pointer', fontWeight: 'bold', fontSize: '13px' }}>
+                    {isApproving ? '処理中...' : isMatched ? '🛒 Amazon照合確定' : '✅ 承認'}
+                  </button>
+                )}
+                <button onClick={() => deleteRow(row.id)}
+                  style={{ padding: '10px 16px', background: s === 'kataji' ? '#6b7280' : '#e5e7eb', color: s === 'kataji' ? 'white' : '#374151', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>
+                  {s === 'kataji' ? '🗑 家事として削除' : '削除'}
+                </button>
+              </div>
+            </div>
+          )
+        })
+      )}
+    </div>
+  )
+}
