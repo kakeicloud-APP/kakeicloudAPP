@@ -1,6 +1,6 @@
-// v2.2.20 app/card-summary/page.tsx approveItemでinvoice_no引き継ぎ
+// v2.2.26 app/card-summary/page.tsx approveItem・confirmMatchにcard_verified:true追加
 /**
- * kakeicloud v2.2.20 | 2026/05/24
+ * kakeicloud v2.2.26 | 2026/05/27
  * kakeicloud-app/app/card-summary/page.tsx
  */
 
@@ -31,7 +31,7 @@ type StagingItem = {
   account?: string
   memo?: string
   note?: string
-  invoice_no?: string  // ⬅️ v2.2.20追加
+  invoice_no?: string
 }
 
 type TxRow = {
@@ -116,7 +116,6 @@ export default function CardSummaryPage() {
     const ids = summaryList.map(s => s.id)
     const [{ data: detailData }, { data: txData }] = await Promise.all([
       supabase.from('card_details')
-        // ⬇️ v2.2.20: invoice_no追加
         .select('id, person, date, description, amount, source_name, card_import_id, status, account, memo, note, invoice_no')
         .in('card_import_id', ids).order('date'),
       supabase.from('transactions')
@@ -228,10 +227,14 @@ export default function CardSummaryPage() {
     return confirm(`⚠️ 似たデータが既に登録されています\n\n${info}\n\n続けて登録しますか？`)
   }
 
+  // ⬇️ v2.2.26: card_verified: true 追加
   async function confirmMatch(item: StagingItem, candidate: MatchCandidate, summary: CardImport) {
     setMatchingId(item.id)
     try {
-      const updateData: any = { card_import_id: summary.id }
+      const updateData: any = {
+        card_import_id: summary.id,
+        card_verified: true,  // ⬅️ v2.2.26
+      }
       if (!candidate.memo) updateData.memo = `カード：${item.description}`
 
       const { error: txError } = await supabase
@@ -259,7 +262,7 @@ export default function CardSummaryPage() {
     finally { setMatchingId(null) }
   }
 
-  // ⬇️ v2.2.20: invoice_no引き継ぎ追加
+  // ⬇️ v2.2.26: card_verified: true 追加
   async function approveItem(item: StagingItem, summary: CardImport) {
     const edit = editMap[item.id] || { account: '消耗品費', memo: `カード：${item.description}`, note: '' }
     setApprovingId(item.id)
@@ -283,7 +286,8 @@ export default function CardSummaryPage() {
         payment_account: item.source_name,
         memo: edit.memo,
         note: edit.note || null,
-        invoice_no: item.invoice_no || null,  // ⬅️ v2.2.20
+        invoice_no: item.invoice_no || null,
+        card_verified: true,  // ⬅️ v2.2.26
         year,
         is_closing: false, is_confirmed: false, is_void: false, is_printed: false, has_receipt: false,
         voucher_no: voucherNo,
@@ -490,7 +494,6 @@ export default function CardSummaryPage() {
                                       🔗 候補{candidates.length}件
                                     </span>
                                   )}
-                                  {/* ⬇️ v2.2.20: invoice_no表示 */}
                                   {item.invoice_no && (
                                     <span style={{ fontSize: '10px', background: '#f0fdf4', color: '#16a34a', padding: '1px 6px', borderRadius: '4px' }}>
                                       📋 {item.invoice_no}
