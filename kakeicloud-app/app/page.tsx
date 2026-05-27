@@ -1,6 +1,6 @@
-// v2.2.23 app/page.tsx 新規・編集モーダルに適格番号（invoice_no）フィールド追加
+// v2.2.25 app/page.tsx card_verifiedフラグ追加（編集・一覧表示）
 /**
- * kakeicloud v2.2.23 | 2026/05/24
+ * kakeicloud v2.2.25 | 2026/05/27
  * kakeicloud-app/app/page.tsx
  */
 
@@ -32,6 +32,7 @@ type Transaction = {
   is_printed: boolean
   has_receipt: boolean
   voucher_no?: string
+  card_verified?: boolean  // ⬅️ v2.2.25
 }
 
 type PaymentAccount = {
@@ -55,26 +56,21 @@ const ACCOUNTS = {
 }
 
 const SUB_ACCOUNTS = ACCOUNTS.keiji.filter(a => a !== "開業費償却")
-
 const ACCOUNT_LABELS: Record<string, string> = {
   keiji: "経費", uriage: "売上", kojyo: "控除", sonota: "その他"
 }
-
 const KIND_TO_METHOD: Record<string, string> = {
   genkin: "現金", card: "未払金", bank: "普通預金", emoney: "未払金",
 }
-
 const PAYMENT_KINDS = [
   { key: "genkin", label: "現金" },
   { key: "card", label: "カード" },
   { key: "bank", label: "銀行" },
   { key: "emoney", label: "電子マネー" },
 ]
-
 const TAX_TYPE: Record<string, string> = {
   keiji: "課税仕入", uriage: "課税売上", kojyo: "対象外", sonota: "対象外",
 }
-
 const FILTER_KINDS = [
   { key: "all", label: "全件" },
   { key: "keiji", label: "経費" },
@@ -83,7 +79,6 @@ const FILTER_KINDS = [
   { key: "kaigohiyo", label: "開業費" },
   { key: "sonota", label: "その他" },
 ]
-
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: CURRENT_YEAR - 2019 }, (_, i) => CURRENT_YEAR - i)
 
@@ -172,6 +167,7 @@ export default function Home() {
   const [newNote, setNewNote] = useState("")
   const [newOrderNo, setNewOrderNo] = useState("")
   const [newHasReceipt, setNewHasReceipt] = useState(true)
+  const [newCardVerified, setNewCardVerified] = useState(false)  // ⬅️ v2.2.25
 
   useEffect(() => {
     fetchData()
@@ -350,6 +346,7 @@ export default function Home() {
       payment_account: newPaymentKind !== "genkin" ? newPaymentAccount || null : null,
       memo: newMemo, note: newNote, order_no: newOrderNo || null,
       has_receipt: newHasReceipt,
+      card_verified: newCardVerified,  // ⬅️ v2.2.25
       year, is_closing: false, is_confirmed: false, is_void: false, is_printed: false, voucher_no: voucherNo,
     })
     if (error) { alert("保存エラー: " + error.message); return }
@@ -357,7 +354,8 @@ export default function Home() {
     setNewDate(new Date().toISOString().split("T")[0])
     setNewKind("keiji"); setNewAmount(""); setNewTaxRate(10); setNewTaxAmount(0)
     setNewInvoiceNo(""); setNewPaymentKind("card"); setNewPaymentAccount("")
-    setNewMemo(""); setNewNote(""); setNewOrderNo(""); setNewHasReceipt(true); setNewSubAccount("")
+    setNewMemo(""); setNewNote(""); setNewOrderNo(""); setNewHasReceipt(true)
+    setNewSubAccount(""); setNewCardVerified(false)
     fetchData()
     setSavedVoucherNo(voucherNo)
   }
@@ -386,6 +384,7 @@ export default function Home() {
       payment_account: editPaymentKind !== "genkin" ? editing.payment_account || null : null,
       memo: editing.memo, note: editing.note, order_no: editing.order_no || null,
       has_receipt: editing.has_receipt, person: editing.person,
+      card_verified: editing.card_verified ?? false,  // ⬅️ v2.2.25
     }).eq("id", editing.id)
     setEditing(null)
     fetchData()
@@ -623,6 +622,8 @@ export default function Home() {
                   {r.note && <div style={{ fontSize: "11px", color: "#6b7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📝 {r.note}</div>}
                   {r.order_no && <div style={{ fontSize: "11px", color: "#f97316", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🛒 {r.order_no}</div>}
                   {r.invoice_no && <div style={{ fontSize: "11px", color: "#7c3aed", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📋 {r.invoice_no}</div>}
+                  {/* ⬇️ v2.2.25: card_verified表示 */}
+                  {r.card_verified && !r.is_void && <div style={{ fontSize: "10px", color: "#0891b2" }}>💳 カード確認済</div>}
                   {!r.has_receipt && !r.is_void && <div style={{ fontSize: "10px", color: "#dc2626" }}>❌証憑無</div>}
                 </td>
                 <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "center", whiteSpace: "nowrap" }}>
@@ -757,11 +758,17 @@ export default function Home() {
                   </button>
                 </div>
               </div>
-              {/* ⬇️ v2.2.23: 適格番号フィールド追加 */}
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>適格番号（インボイス登録番号）</label>
                 <input value={newInvoiceNo} onChange={e => setNewInvoiceNo(e.target.value)} placeholder="T1234567890123"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px", boxSizing: "border-box" }} />
+              </div>
+              {/* ⬇️ v2.2.25: card_verifiedトグル */}
+              <div style={{ marginBottom: "12px" }}>
+                <button onClick={() => setNewCardVerified(!newCardVerified)}
+                  style={{ width: "100%", padding: "10px", background: newCardVerified ? "#0891b2" : "#e5e7eb", color: newCardVerified ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                  💳 {newCardVerified ? "カード確認済み ✓" : "カード未確認"}
+                </button>
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>摘要</label>
@@ -927,12 +934,18 @@ export default function Home() {
                   <option value="wife">妻</option>
                 </select>
               </div>
-              {/* ⬇️ v2.2.23: 適格番号フィールド追加 */}
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>適格番号（インボイス登録番号）</label>
                 <input value={editing.invoice_no || ""} onChange={e => setEditing({ ...editing, invoice_no: e.target.value })}
                   placeholder="T1234567890123"
                   style={{ width: "100%", padding: "8px", border: "1px solid #e5e7eb", borderRadius: "6px" }} />
+              </div>
+              {/* ⬇️ v2.2.25: card_verifiedトグル */}
+              <div style={{ marginBottom: "12px" }}>
+                <button onClick={() => setEditing({ ...editing, card_verified: !editing.card_verified })}
+                  style={{ width: "100%", padding: "10px", background: editing.card_verified ? "#0891b2" : "#e5e7eb", color: editing.card_verified ? "white" : "#374151", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
+                  💳 {editing.card_verified ? "カード確認済み ✓" : "カード未確認"}
+                </button>
               </div>
               <div style={{ marginBottom: "12px" }}>
                 <label style={{ display: "block", fontSize: "12px", marginBottom: "4px" }}>摘要</label>
