@@ -1,0 +1,34 @@
+# Supabaseの無料プラン自動停止を防ぐため、/api/keepalive を1日4回呼び出す。
+# （Vercel Hobbyの定期実行は1日1回までのため、こちらで回数を補う）
+# Vercel側でCRON_SECRETを設定している場合は、GitHubのSecretsにも
+# 同じ値を CRON_SECRET という名前で登録する（未設定ならそのまま動く）。
+name: Supabase keepalive
+
+on:
+  schedule:
+    # UTC表記。日本時間 3:17 / 9:17 / 15:17 / 21:17
+    - cron: '17 0,6,12,18 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/keepalive
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          KEEPALIVE_URL: https://kakeicloud-app.vercel.app/api/keepalive
+        run: |
+          if [ -n "$CRON_SECRET" ]; then
+            AUTH=(-H "Authorization: Bearer $CRON_SECRET")
+          else
+            AUTH=()
+          fi
+          for i in 1 2 3; do
+            code=$(curl -s -o body.json -w '%{http_code}' "${AUTH[@]}" "$KEEPALIVE_URL")
+            cat body.json; echo
+            [ "$code" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "keepalive failed (HTTP $code)"
+          exit 1
